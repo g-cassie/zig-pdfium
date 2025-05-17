@@ -65,6 +65,9 @@
         //    // actually used.
         //    .lazy = false,
         //},
+        .pdfium = .{
+            .path = "vendor/pdfium-mac-arm64",
+        },
     },
 
     // Specifies the set of files and directories that are included in this package.
