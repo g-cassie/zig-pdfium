@@ -26,8 +26,36 @@ pub fn main() !void {
         return;
     };
     const page_count = lib.FPDF_GetPageCount(pdf);
-
     std.debug.print("Page count: {}\n", .{page_count});
+
+    const page = lib.FPDF_LoadPage(pdf, 0);
+    defer lib.FPDF_ClosePage(page);
+
+    const bitmap = lib.FPDFBitmap_Create(100, 100, 1);
+    defer lib.FPDFBitmap_Destroy(bitmap);
+
+    const width = lib.FPDF_GetPageWidth(page);
+    const height = lib.FPDF_GetPageHeight(page);
+    std.debug.print("Page width: {}\n", .{width});
+    std.debug.print("Page height: {}\n", .{height});
+
+    // lib.FPDF_RenderPageBitmap(bitmap, page, 0, 0, 100, 100, 0, 0);
+
+    // Create file to write bitmap data
+    // const bitmap_file = try std.fs.cwd().createFile("output.bmp", .{});
+    // defer bitmap_file.close();
+
+    // // Get bitmap buffer pointer and stride
+    // const buffer = lib.FPDFBitmap_GetBuffer(bitmap);
+    // const stride = lib.FPDFBitmap_GetStride(bitmap);
+
+    // // Write bitmap data
+    // const writer = bitmap_file.writer();
+    // var i: usize = 0;
+    // while (i < 100) : (i += 1) {
+    //     const row = buffer + (i * stride);
+    //     try writer.writeAll(row[0..stride]);
+    // }
 
     // stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to

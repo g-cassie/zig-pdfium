@@ -2,29 +2,42 @@
 //! you are making an executable, the convention is to delete this file and
 //! start with main.zig instead.
 const std = @import("std");
+const c = @cImport({
+    @cInclude("fpdfview.h");
+});
 const testing = std.testing;
 
 pub var c_pdfium: ?std.DynLib = null;
 
-pub const FPDFDocument = *anyopaque;
-
-pub var FPDF_LoadDocument: *const fn ([*c]const u8, [*c]u8) callconv(.C) ?FPDFDocument = undefined;
-pub var FPDF_InitLibrary: *const fn () callconv(.C) void = undefined;
-pub var FPDF_GetPageCount: *const fn (FPDFDocument) callconv(.C) c_int = undefined;
-pub var FPDF_GetLastError: *const fn () callconv(.C) c_int = undefined;
+// pub var FPDF_LoadDocument: *const fn ([*c]const u8, [*c]u8) callconv(.C) c.FPDF_DOCUMENT = undefined;
+pub var FPDF_LoadDocument: *@TypeOf(c.FPDF_LoadDocument) = undefined;
+pub var FPDF_InitLibrary: *@TypeOf(c.FPDF_InitLibrary) = undefined;
+pub var FPDF_GetPageCount: *@TypeOf(c.FPDF_GetPageCount) = undefined;
+pub var FPDF_GetLastError: *@TypeOf(c.FPDF_GetLastError) = undefined;
+pub var FPDF_RenderPageBitmap: *@TypeOf(c.FPDF_RenderPageBitmap) = undefined;
+pub var FPDFBitmap_Create: *@TypeOf(c.FPDFBitmap_Create) = undefined;
+pub var FPDFBitmap_Destroy: *@TypeOf(c.FPDFBitmap_Destroy) = undefined;
+pub var FPDF_LoadPage: *@TypeOf(c.FPDF_LoadPage) = undefined;
+pub var FPDF_ClosePage: *@TypeOf(c.FPDF_ClosePage) = undefined;
+pub var FPDF_CloseDocument: *@TypeOf(c.FPDF_CloseDocument) = undefined;
+pub var FPDF_GetPageWidth: *@TypeOf(c.FPDF_GetPageWidth) = undefined;
+pub var FPDF_GetPageHeight: *@TypeOf(c.FPDF_GetPageHeight) = undefined;
 
 pub fn bindPdfium() !void {
     c_pdfium = try std.DynLib.open("./vendor/pdfium-mac-arm64/lib/libpdfium.dylib");
+
     FPDF_InitLibrary = c_pdfium.?.lookup(@TypeOf(FPDF_InitLibrary), "FPDF_InitLibrary").?;
     FPDF_LoadDocument = c_pdfium.?.lookup(@TypeOf(FPDF_LoadDocument), "FPDF_LoadDocument").?;
     FPDF_GetPageCount = c_pdfium.?.lookup(@TypeOf(FPDF_GetPageCount), "FPDF_GetPageCount").?;
     FPDF_GetLastError = c_pdfium.?.lookup(@TypeOf(FPDF_GetLastError), "FPDF_GetLastError").?;
-}
+    FPDF_RenderPageBitmap = c_pdfium.?.lookup(@TypeOf(FPDF_RenderPageBitmap), "FPDF_RenderPageBitmap").?;
 
-pub export fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
+    FPDFBitmap_Create = c_pdfium.?.lookup(@TypeOf(FPDFBitmap_Create), "FPDFBitmap_Create").?;
+    FPDFBitmap_Destroy = c_pdfium.?.lookup(@TypeOf(FPDFBitmap_Destroy), "FPDFBitmap_Destroy").?;
 
-test "basic add functionality" {
-    try testing.expect(add(3, 7) == 10);
+    FPDF_LoadPage = c_pdfium.?.lookup(@TypeOf(FPDF_LoadPage), "FPDF_LoadPage").?;
+    FPDF_ClosePage = c_pdfium.?.lookup(@TypeOf(FPDF_ClosePage), "FPDF_ClosePage").?;
+    FPDF_CloseDocument = c_pdfium.?.lookup(@TypeOf(FPDF_CloseDocument), "FPDF_CloseDocument").?;
+    FPDF_GetPageWidth = c_pdfium.?.lookup(@TypeOf(FPDF_GetPageWidth), "FPDF_GetPageWidth").?;
+    FPDF_GetPageHeight = c_pdfium.?.lookup(@TypeOf(FPDF_GetPageHeight), "FPDF_GetPageHeight").?;
 }
