@@ -1,0 +1,5 @@
+vendor/pdfium*
+**/.DS_Store
+
+.zig-cache/*
+zig-build/*
