@@ -109,55 +109,51 @@ pub fn getLastError() ?Error {
     unreachable;
 }
 
-pub const Document = struct {
-    fpdf_document: c.FPDF_DOCUMENT,
-
-    pub fn load(path: []const u8) !Document {
-        const fpdf_document = FPDF_LoadDocument(path.ptr, null);
-        if (fpdf_document == null) {
+pub const Document = opaque {
+    pub fn load(path: []const u8) !*Document {
+        if (FPDF_LoadDocument(path.ptr, null)) |doc| {
+            return @ptrCast(doc);
+        } else {
             return getLastError().?;
         }
-        return Document{ .fpdf_document = fpdf_document.? };
     }
 
     pub fn deinit(self: *Document) void {
-        FPDF_CloseDocument(self.fpdf_document);
+        FPDF_CloseDocument(@ptrCast(self));
     }
 
     pub fn getPageCount(self: *Document) c_int {
-        return FPDF_GetPageCount(self.fpdf_document);
+        return FPDF_GetPageCount(@ptrCast(self));
     }
 
-    pub fn loadPage(self: *Document, index: c_int) !Page {
-        const fpdf_page = FPDF_LoadPage(self.fpdf_document, index);
-        if (fpdf_page == null) {
+    pub fn loadPage(self: *Document, index: c_int) !*Page {
+        if (FPDF_LoadPage(@ptrCast(self), index)) |page| {
+            return @ptrCast(page);
+        } else {
             return error.LoadFailed;
         }
-        return Page{ .fpdf_page = fpdf_page.? };
     }
 };
 
-pub const Page = struct {
-    fpdf_page: c.FPDF_PAGE,
-
+pub const Page = opaque {
     pub fn deinit(self: *Page) void {
-        FPDF_ClosePage(self.fpdf_page);
+        FPDF_ClosePage(@ptrCast(self));
     }
 
     pub fn getWidth(self: *Page) f64 {
-        return FPDF_GetPageWidthF(self.fpdf_page);
+        return FPDF_GetPageWidthF(@ptrCast(self));
     }
 
     pub fn getHeight(self: *Page) f64 {
-        return FPDF_GetPageHeightF(self.fpdf_page);
+        return FPDF_GetPageHeightF(@ptrCast(self));
     }
 
-    pub fn loadTextPage(self: *Page) !TextPage {
-        const fpdf_text_page = FPDFText_LoadPage(self.fpdf_page);
-        if (fpdf_text_page == null) {
+    pub fn loadTextPage(self: *Page) !*TextPage {
+        if (FPDFText_LoadPage(@ptrCast(self))) |text_page| {
+            return @ptrCast(text_page);
+        } else {
             return error.LoadFailed;
         }
-        return TextPage{ .fpdf_text_page = fpdf_text_page.? };
     }
 };
 
@@ -170,19 +166,17 @@ const BitmapFormat = enum(c_int) {
     bgra_premul = c.FPDFBitmap_BGRA_Premul,
 };
 
-pub const Bitmap = struct {
-    fpdf_bitmap: c.FPDF_BITMAP,
-
-    pub fn initEx(width: c_int, height: c_int, format: BitmapFormat, buffer: []u8, stride: c_int) !Bitmap {
+pub const Bitmap = opaque {
+    pub fn initEx(width: c_int, height: c_int, format: BitmapFormat, buffer: []u8, stride: c_int) !*Bitmap {
         const fpdf_bitmap = FPDFBitmap_CreateEx(width, height, @intFromEnum(format), buffer.ptr, stride);
         if (fpdf_bitmap == null) {
             return error.ParameterError;
         }
-        return Bitmap{ .fpdf_bitmap = fpdf_bitmap.? };
+        return @ptrCast(fpdf_bitmap.?);
     }
 
     pub fn fillRect(self: *Bitmap, x: c_int, y: c_int, width: c_int, height: c_int, color: u32) !void {
-        const success = FPDFBitmap_FillRect(self.fpdf_bitmap, x, y, width, height, color);
+        const success = FPDFBitmap_FillRect(@ptrCast(self), x, y, width, height, color);
         if (success != 1) {
             return error.FillFailed;
         }
@@ -198,11 +192,11 @@ pub const Bitmap = struct {
         rotate: c_int,
         flags: c_int,
     ) void {
-        FPDF_RenderPageBitmap(self.fpdf_bitmap, page.fpdf_page, x, y, width, height, rotate, flags);
+        FPDF_RenderPageBitmap(@ptrCast(self), @ptrCast(page), x, y, width, height, rotate, flags);
     }
 
     pub fn deinit(self: *Bitmap) void {
-        FPDFBitmap_Destroy(self.fpdf_bitmap);
+        FPDFBitmap_Destroy(@ptrCast(self));
     }
 };
 
@@ -213,11 +207,9 @@ pub const TextPageRect = struct {
     bottom: f64,
 };
 
-pub const TextPage = struct {
-    fpdf_text_page: c.FPDF_TEXTPAGE,
-
+pub const TextPage = opaque {
     pub fn deinit(self: *TextPage) void {
-        FPDFText_ClosePage(self.fpdf_text_page);
+        FPDFText_ClosePage(@ptrCast(self));
     }
 
     pub fn getRect(self: *TextPage, index: usize) !TextPageRect {
@@ -227,7 +219,7 @@ pub const TextPage = struct {
             .right = std.math.floatMin(f64),
             .bottom = std.math.floatMin(f64),
         };
-        const success: c_int = FPDFText_GetRect(self.fpdf_text_page, @intCast(index), &r.left, &r.top, &r.right, &r.bottom);
+        const success: c_int = FPDFText_GetRect(@ptrCast(self), @intCast(index), &r.left, &r.top, &r.right, &r.bottom);
         if (success != 1) {
             if (r.left == 0 and r.top == 0 and r.right == 0 and r.bottom == 0) {
                 return error.IndexOutOfBounds;
@@ -240,7 +232,7 @@ pub const TextPage = struct {
 
     pub fn countRects(self: *TextPage, start: usize, count: ?usize) !usize {
         const c_count: c_int = if (count) |x| @intCast(x) else -1;
-        const result: c_int = FPDFText_CountRects(self.fpdf_text_page, @intCast(start), c_count);
+        const result: c_int = FPDFText_CountRects(@ptrCast(self), @intCast(start), c_count);
         if (result < 0) {
             return error.InvalidStartIndex;
         }
