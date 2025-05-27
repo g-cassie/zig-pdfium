@@ -2,11 +2,17 @@
 //! you are making an executable, the convention is to delete this file and
 //! start with main.zig instead.
 const std = @import("std");
+const builtin = @import("builtin");
 const c = @cImport({
     @cInclude("fpdfview.h");
     @cInclude("fpdf_text.h");
 });
 const testing = std.testing;
+const assert = std.debug.assert;
+const panic = std.debug.panic;
+
+var DID_INIT: bool = false;
+var IS_BOUND: bool = false;
 
 pub var c_pdfium: ?std.DynLib = null;
 pub const FPDF_GRAYSCALE = c.FPDF_GRAYSCALE;
@@ -37,6 +43,7 @@ pub var FPDFText_CountRects: *@TypeOf(c.FPDFText_CountRects) = undefined;
 pub var FPDFText_GetRect: *@TypeOf(c.FPDFText_GetRect) = undefined;
 
 pub fn bindPdfium(path: []const u8) !void {
+    defer IS_BOUND = true;
     c_pdfium = try std.DynLib.open(path);
 
     // Top Level Methods
@@ -72,6 +79,7 @@ pub fn bindPdfium(path: []const u8) !void {
 }
 
 const Error = error{
+    Success,
     Unknown,
     File,
     Format,
@@ -83,38 +91,48 @@ const Error = error{
 };
 
 pub fn initLibrary() void {
+    assert(IS_BOUND);
     FPDF_InitLibrary();
+    DID_INIT = true;
 }
 
-pub fn getLastError() ?Error {
+pub fn getLastError() Error {
     const err = FPDF_GetLastError();
     switch (err) {
-        c.FPDF_ERR_SUCCESS => return null,
+        c.FPDF_ERR_SUCCESS => return error.Success,
         c.FPDF_ERR_UNKNOWN => return error.Unknown,
         c.FPDF_ERR_FILE => return error.File,
         c.FPDF_ERR_FORMAT => return error.Format,
         c.FPDF_ERR_PASSWORD => return error.Password,
         c.FPDF_ERR_SECURITY => return error.Security,
         c.FPDF_ERR_PAGE => return error.Page,
-        else => {},
+        else => {
+            if (@hasDecl(c, "PDF_ENABLE_XFA")) {
+                if (err == c.FPDF_ERR_XFALOAD) {
+                    return error.XFALoad;
+                } else if (err == c.FPDF_ERR_XFALAYOUT) {
+                    return error.XFALayout;
+                }
+            }
+        },
     }
-    // TODO need some comptime magic to handle this
-    // if (c.PDF_ENABLE_XFA) {
-    //     switch (err) {
-    //         c.FPDF_ERR_XFALOAD => return error.XFALoad,
-    //         c.FPDF_ERR_XFALAYOUT => return error.XFALayout,
-    //         else => {},
-    //     }
-    // }
     unreachable;
 }
 
+fn assertLoaded() void {
+    if (builtin.mode == .Debug and !DID_INIT) {
+        panic("You must call initLibrary() before using the PDFium library or you will get segfaults", .{});
+    }
+}
+
 pub const Document = opaque {
-    pub fn load(path: []const u8) !*Document {
+    pub fn load(path: [:0]const u8) !*Document {
+        assertLoaded();
+        // TODO: null terminate path
         if (FPDF_LoadDocument(path.ptr, null)) |doc| {
             return @ptrCast(doc);
         } else {
-            return getLastError().?;
+            return getLastError();
         }
     }
 
@@ -122,12 +140,12 @@ pub const Document = opaque {
         FPDF_CloseDocument(@ptrCast(self));
     }
 
-    pub fn getPageCount(self: *Document) c_int {
-        return FPDF_GetPageCount(@ptrCast(self));
+    pub fn getPageCount(self: *Document) usize {
+        return @intCast(FPDF_GetPageCount(@ptrCast(self)));
     }
 
-    pub fn loadPage(self: *Document, index: c_int) !*Page {
-        if (FPDF_LoadPage(@ptrCast(self), index)) |page| {
+    pub fn loadPage(self: *Document, index: usize) !*Page {
+        if (FPDF_LoadPage(@ptrCast(self), @intCast(index))) |page| {
             return @ptrCast(page);
         } else {
             return error.LoadFailed;
@@ -168,6 +186,7 @@ const BitmapFormat = enum(c_int) {
 
 pub const Bitmap = opaque {
     pub fn initEx(width: c_int, height: c_int, format: BitmapFormat, buffer: []u8, stride: c_int) !*Bitmap {
+        assertLoaded();
         const fpdf_bitmap = FPDFBitmap_CreateEx(width, height, @intFromEnum(format), buffer.ptr, stride);
         if (fpdf_bitmap == null) {
             return error.ParameterError;
