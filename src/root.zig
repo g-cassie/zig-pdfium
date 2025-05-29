@@ -184,6 +184,48 @@ const BitmapFormat = enum(c_int) {
     bgra_premul = c.FPDFBitmap_BGRA_Premul,
 };
 
+const BitmapRenderFlags = packed struct {
+    annot: bool = false,
+    lcd_text: bool = false,
+    no_nativetext: bool = false,
+    grayscale: bool = false,
+
+    reverse_byte_order: bool = false,
+    convert_fill_to_stroke: bool = false,
+    _padding_1: u1 = 0,
+    debug_info: bool = false,
+
+    no_catch: bool = false,
+    limited_image_cache: bool = false,
+    force_halftone: bool = false,
+    printing: bool = false,
+
+    no_smoothtext: bool = false,
+    no_smoothimage: bool = false,
+    no_smoothpath: bool = false,
+    _padding_2: u1 = 0,
+
+    _padding_3: u16 = 0,
+};
+
+comptime {
+    assert(@sizeOf(BitmapRenderFlags) == @sizeOf(c_int));
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .annot = true })) == c.FPDF_ANNOT);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .lcd_text = true })) == c.FPDF_LCD_TEXT);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .no_nativetext = true })) == c.FPDF_NO_NATIVETEXT);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .grayscale = true })) == c.FPDF_GRAYSCALE);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .debug_info = true })) == c.FPDF_DEBUG_INFO);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .no_catch = true })) == c.FPDF_NO_CATCH);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .limited_image_cache = true })) == c.FPDF_RENDER_LIMITEDIMAGECACHE);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .force_halftone = true })) == c.FPDF_RENDER_FORCEHALFTONE);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .printing = true })) == c.FPDF_PRINTING);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .no_smoothtext = true })) == c.FPDF_RENDER_NO_SMOOTHTEXT);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .no_smoothimage = true })) == c.FPDF_RENDER_NO_SMOOTHIMAGE);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .no_smoothpath = true })) == c.FPDF_RENDER_NO_SMOOTHPATH);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .reverse_byte_order = true })) == c.FPDF_REVERSE_BYTE_ORDER);
+    assert(@as(c_int, @bitCast(BitmapRenderFlags{ .convert_fill_to_stroke = true })) == c.FPDF_CONVERT_FILL_TO_STROKE);
+}
+
 pub const Bitmap = opaque {
     pub fn initEx(width: c_int, height: c_int, format: BitmapFormat, buffer: []u8, stride: c_int) !*Bitmap {
         assertLoaded();
@@ -209,9 +251,9 @@ pub const Bitmap = opaque {
         width: c_int,
         height: c_int,
         rotate: c_int,
-        flags: c_int,
+        flags: BitmapRenderFlags,
     ) void {
-        FPDF_RenderPageBitmap(@ptrCast(self), @ptrCast(page), x, y, width, height, rotate, flags);
+        FPDF_RenderPageBitmap(@ptrCast(self), @ptrCast(page), x, y, width, height, rotate, @as(c_int, @bitCast(flags)));
     }
 
     pub fn deinit(self: *Bitmap) void {
