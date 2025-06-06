@@ -6,6 +6,8 @@ const builtin = @import("builtin");
 const c = @cImport({
     @cInclude("fpdfview.h");
     @cInclude("fpdf_text.h");
+    @cInclude("fpdf_doc.h");
+    @cInclude("fpdf_annot.h");
 });
 const testing = std.testing;
 const assert = std.debug.assert;
@@ -42,6 +44,17 @@ pub var FPDFText_ClosePage: *@TypeOf(c.FPDFText_ClosePage) = undefined;
 pub var FPDFText_CountRects: *@TypeOf(c.FPDFText_CountRects) = undefined;
 pub var FPDFText_GetRect: *@TypeOf(c.FPDFText_GetRect) = undefined;
 
+pub var FPDFPage_GetAnnotCount: *@TypeOf(c.FPDFPage_GetAnnotCount) = undefined;
+pub var FPDFPage_GetAnnot: *@TypeOf(c.FPDFPage_GetAnnot) = undefined;
+pub var FPDFPage_CloseAnnot: *@TypeOf(c.FPDFPage_CloseAnnot) = undefined;
+pub var FPDFAnnot_GetSubtype: *@TypeOf(c.FPDFAnnot_GetSubtype) = undefined;
+pub var FPDFAnnot_GetRect: *@TypeOf(c.FPDFAnnot_GetRect) = undefined;
+pub var FPDFAnnot_GetLink: *@TypeOf(c.FPDFAnnot_GetLink) = undefined;
+pub var FPDFLink_GetDest: *@TypeOf(c.FPDFLink_GetDest) = undefined;
+pub var FPDFLink_GetAction: *@TypeOf(c.FPDFLink_GetAction) = undefined;
+pub var FPDFDest_GetDestPageIndex: *@TypeOf(c.FPDFDest_GetDestPageIndex) = undefined;
+pub var FPDFAction_GetDest: *@TypeOf(c.FPDFAction_GetDest) = undefined;
+
 pub fn bindPdfium(path: []const u8) !void {
     defer IS_BOUND = true;
     c_pdfium = try std.DynLib.open(path);
@@ -76,9 +89,21 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFText_ClosePage = c_pdfium.?.lookup(@TypeOf(FPDFText_ClosePage), "FPDFText_ClosePage").?;
     FPDFText_CountRects = c_pdfium.?.lookup(@TypeOf(FPDFText_CountRects), "FPDFText_CountRects").?;
     FPDFText_GetRect = c_pdfium.?.lookup(@TypeOf(FPDFText_GetRect), "FPDFText_GetRect").?;
+
+    // Annotation and Link methods
+    FPDFPage_GetAnnotCount = c_pdfium.?.lookup(@TypeOf(FPDFPage_GetAnnotCount), "FPDFPage_GetAnnotCount").?;
+    FPDFPage_GetAnnot = c_pdfium.?.lookup(@TypeOf(FPDFPage_GetAnnot), "FPDFPage_GetAnnot").?;
+    FPDFPage_CloseAnnot = c_pdfium.?.lookup(@TypeOf(FPDFPage_CloseAnnot), "FPDFPage_CloseAnnot").?;
+    FPDFAnnot_GetSubtype = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetSubtype), "FPDFAnnot_GetSubtype").?;
+    FPDFAnnot_GetRect = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetRect), "FPDFAnnot_GetRect").?;
+    FPDFAnnot_GetLink = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetLink), "FPDFAnnot_GetLink").?;
+    FPDFLink_GetDest = c_pdfium.?.lookup(@TypeOf(FPDFLink_GetDest), "FPDFLink_GetDest").?;
+    FPDFLink_GetAction = c_pdfium.?.lookup(@TypeOf(FPDFLink_GetAction), "FPDFLink_GetAction").?;
+    FPDFDest_GetDestPageIndex = c_pdfium.?.lookup(@TypeOf(FPDFDest_GetDestPageIndex), "FPDFDest_GetDestPageIndex").?;
+    FPDFAction_GetDest = c_pdfium.?.lookup(@TypeOf(FPDFAction_GetDest), "FPDFAction_GetDest").?;
 }
 
-const Error = error{
+pub const Error = error{
     Success,
     Unknown,
     File,
@@ -172,6 +197,17 @@ pub const Page = opaque {
         } else {
             return error.LoadFailed;
         }
+    }
+
+    pub fn getAnnotationCount(self: *Page) usize {
+        return @intCast(FPDFPage_GetAnnotCount(@ptrCast(self)));
+    }
+
+    pub fn getAnnotation(self: *Page, index: usize) !*Annotation {
+        if (FPDFPage_GetAnnot(@ptrCast(self), @intCast(index))) |annot| {
+            return @ptrCast(annot);
+        }
+        return error.GetAnnotationFailed;
     }
 };
 
@@ -295,8 +331,122 @@ pub const TextPage = opaque {
         const c_count: c_int = if (count) |x| @intCast(x) else -1;
         const result: c_int = FPDFText_CountRects(@ptrCast(self), @intCast(start), c_count);
         if (result < 0) {
-            return error.InvalidStartIndex;
+            return error.IndexOutOfBounds;
         }
         return @intCast(result);
+    }
+};
+pub const AnnotationSubtype = enum(c_int) {
+    unknown = c.FPDF_ANNOT_UNKNOWN,
+    text = c.FPDF_ANNOT_TEXT,
+    link = c.FPDF_ANNOT_LINK,
+    freetext = c.FPDF_ANNOT_FREETEXT,
+    line = c.FPDF_ANNOT_LINE,
+    square = c.FPDF_ANNOT_SQUARE,
+    circle = c.FPDF_ANNOT_CIRCLE,
+    polygon = c.FPDF_ANNOT_POLYGON,
+    polyline = c.FPDF_ANNOT_POLYLINE,
+    highlight = c.FPDF_ANNOT_HIGHLIGHT,
+    underline = c.FPDF_ANNOT_UNDERLINE,
+    squiggly = c.FPDF_ANNOT_SQUIGGLY,
+    strikethrough = c.FPDF_ANNOT_STRIKEOUT,
+    stamp = c.FPDF_ANNOT_STAMP,
+    caret = c.FPDF_ANNOT_CARET,
+    ink = c.FPDF_ANNOT_INK,
+    popup = c.FPDF_ANNOT_POPUP,
+    fileattachment = c.FPDF_ANNOT_FILEATTACHMENT,
+    sound = c.FPDF_ANNOT_SOUND,
+    movie = c.FPDF_ANNOT_MOVIE,
+    widget = c.FPDF_ANNOT_WIDGET,
+    screen = c.FPDF_ANNOT_SCREEN,
+    printermark = c.FPDF_ANNOT_PRINTERMARK,
+    trapnet = c.FPDF_ANNOT_TRAPNET,
+    watermark = c.FPDF_ANNOT_WATERMARK,
+    threed = c.FPDF_ANNOT_THREED,
+    richmedia = c.FPDF_ANNOT_RICHMEDIA,
+    xfawidget = c.FPDF_ANNOT_XFAWIDGET,
+    redact = c.FPDF_ANNOT_REDACT,
+};
+
+pub const AnnotationRect = extern struct {
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+};
+comptime {
+    // Test equivalency with FS_RECTF from fpdfview.h
+    const test_rect = AnnotationRect{
+        .left = 1.0,
+        .top = 2.0,
+        .right = 3.0,
+        .bottom = 4.0,
+    };
+    const test_c_rect = c.FS_RECTF{
+        .left = 1.0,
+        .top = 2.0,
+        .right = 3.0,
+        .bottom = 4.0,
+    };
+    assert(test_rect.left == test_c_rect.left);
+    assert(test_rect.top == test_c_rect.top);
+    assert(test_rect.right == test_c_rect.right);
+    assert(test_rect.bottom == test_c_rect.bottom);
+}
+
+pub const Annotation = opaque {
+    pub fn deinit(self: *Annotation) void {
+        FPDFPage_CloseAnnot(@ptrCast(self));
+    }
+
+    pub fn getSubtype(self: *Annotation) AnnotationSubtype {
+        return @enumFromInt(FPDFAnnot_GetSubtype(@ptrCast(self)));
+    }
+
+    pub fn getRect(self: *Annotation) !AnnotationRect {
+        var rect: AnnotationRect = undefined;
+        const success = FPDFAnnot_GetRect(@ptrCast(self), @ptrCast(&rect));
+        if (success != 1) {
+            return error.Failed;
+        }
+        return rect;
+    }
+
+    pub fn getLink(self: *Annotation) ?*Link {
+        if (FPDFAnnot_GetLink(@ptrCast(self))) |link| {
+            return @ptrCast(link);
+        }
+        return null;
+    }
+};
+
+pub const Link = opaque {
+    pub fn getDest(self: *Link, document: *Document) ?*Destination {
+        if (FPDFLink_GetDest(@ptrCast(document), @ptrCast(self))) |dest| {
+            return @ptrCast(dest);
+        }
+        return null;
+    }
+
+    pub fn getAction(self: *Link) ?*Action {
+        if (FPDFLink_GetAction(@ptrCast(self))) |action| {
+            return @ptrCast(action);
+        }
+        return null;
+    }
+};
+
+pub const Destination = opaque {
+    pub fn getDestPageIndex(self: *Destination, document: *Document) i32 {
+        return FPDFDest_GetDestPageIndex(@ptrCast(document), @ptrCast(self));
+    }
+};
+
+pub const Action = opaque {
+    pub fn getDest(self: *Action, document: *Document) ?*Destination {
+        if (FPDFAction_GetDest(@ptrCast(document), @ptrCast(self))) |dest| {
+            return @ptrCast(dest);
+        }
+        return null;
     }
 };
