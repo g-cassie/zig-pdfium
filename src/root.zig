@@ -52,6 +52,7 @@ pub var FPDFAnnot_GetRect: *@TypeOf(c.FPDFAnnot_GetRect) = undefined;
 pub var FPDFAnnot_GetLink: *@TypeOf(c.FPDFAnnot_GetLink) = undefined;
 pub var FPDFLink_GetDest: *@TypeOf(c.FPDFLink_GetDest) = undefined;
 pub var FPDFLink_GetAction: *@TypeOf(c.FPDFLink_GetAction) = undefined;
+pub var FPDFLink_Enumerate: *@TypeOf(c.FPDFLink_Enumerate) = undefined;
 pub var FPDFDest_GetDestPageIndex: *@TypeOf(c.FPDFDest_GetDestPageIndex) = undefined;
 pub var FPDFAction_GetDest: *@TypeOf(c.FPDFAction_GetDest) = undefined;
 
@@ -99,6 +100,7 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFAnnot_GetLink = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetLink), "FPDFAnnot_GetLink").?;
     FPDFLink_GetDest = c_pdfium.?.lookup(@TypeOf(FPDFLink_GetDest), "FPDFLink_GetDest").?;
     FPDFLink_GetAction = c_pdfium.?.lookup(@TypeOf(FPDFLink_GetAction), "FPDFLink_GetAction").?;
+    FPDFLink_Enumerate = c_pdfium.?.lookup(@TypeOf(FPDFLink_Enumerate), "FPDFLink_Enumerate").?;
     FPDFDest_GetDestPageIndex = c_pdfium.?.lookup(@TypeOf(FPDFDest_GetDestPageIndex), "FPDFDest_GetDestPageIndex").?;
     FPDFAction_GetDest = c_pdfium.?.lookup(@TypeOf(FPDFAction_GetDest), "FPDFAction_GetDest").?;
 }
@@ -179,6 +181,19 @@ pub const Document = opaque {
 };
 
 pub const Page = opaque {
+    const LinkIterator = struct {
+        index: c_int,
+        page: *Page,
+
+        pub fn next(self: *LinkIterator) ?*Link {
+            var link: c.FPDF_LINK = null;
+            if (FPDFLink_Enumerate(@ptrCast(self.page), &self.index, &link) > 0) {
+                return @ptrCast(link);
+            }
+            return null;
+        }
+    };
+
     pub fn deinit(self: *Page) void {
         FPDF_ClosePage(@ptrCast(self));
     }
@@ -208,6 +223,13 @@ pub const Page = opaque {
             return @ptrCast(annot);
         }
         return error.GetAnnotationFailed;
+    }
+
+    pub fn linkIterator(self: *Page) LinkIterator {
+        return LinkIterator{
+            .index = 0,
+            .page = self,
+        };
     }
 };
 
