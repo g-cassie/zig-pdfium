@@ -23,6 +23,7 @@ pub const FPDFBitmap_BGRA = c.FPDFBitmap_BGRA;
 // pub var FPDF_LoadDocument: *const fn ([*c]const u8, [*c]u8) callconv(.C) c.FPDF_DOCUMENT = undefined;
 pub var FPDF_LoadDocument: *@TypeOf(c.FPDF_LoadDocument) = undefined;
 pub var FPDF_InitLibrary: *@TypeOf(c.FPDF_InitLibrary) = undefined;
+pub var FPDF_DestroyLibrary: *@TypeOf(c.FPDF_DestroyLibrary) = undefined;
 pub var FPDF_GetPageCount: *@TypeOf(c.FPDF_GetPageCount) = undefined;
 pub var FPDF_GetLastError: *@TypeOf(c.FPDF_GetLastError) = undefined;
 pub var FPDF_RenderPageBitmap: *@TypeOf(c.FPDF_RenderPageBitmap) = undefined;
@@ -73,6 +74,7 @@ pub fn bindPdfium(path: []const u8) !void {
 
     // Top Level Methods
     FPDF_InitLibrary = c_pdfium.?.lookup(@TypeOf(FPDF_InitLibrary), "FPDF_InitLibrary").?;
+    FPDF_DestroyLibrary = c_pdfium.?.lookup(@TypeOf(FPDF_DestroyLibrary), "FPDF_DestroyLibrary").?;
     FPDF_GetLastError = c_pdfium.?.lookup(@TypeOf(FPDF_GetLastError), "FPDF_GetLastError").?;
 
     // FPDFDocument methods
@@ -140,8 +142,17 @@ pub const Error = error{
 
 pub fn initLibrary() void {
     assert(IS_BOUND);
+    assert(!DID_INIT);
     FPDF_InitLibrary();
     DID_INIT = true;
+}
+
+pub fn destroyLibrary() void {
+    assert(IS_BOUND);
+    if (DID_INIT) {
+        FPDF_DestroyLibrary();
+        DID_INIT = false;
+    }
 }
 
 pub fn getLastError() Error {
