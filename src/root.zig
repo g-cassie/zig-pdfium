@@ -53,6 +53,7 @@ pub var FPDFAnnot_GetLink: *@TypeOf(c.FPDFAnnot_GetLink) = undefined;
 pub var FPDFLink_GetDest: *@TypeOf(c.FPDFLink_GetDest) = undefined;
 pub var FPDFLink_GetAction: *@TypeOf(c.FPDFLink_GetAction) = undefined;
 pub var FPDFLink_Enumerate: *@TypeOf(c.FPDFLink_Enumerate) = undefined;
+pub var FPDFLink_GetAnnotRect: *@TypeOf(c.FPDFLink_GetAnnotRect) = undefined;
 pub var FPDFDest_GetDestPageIndex: *@TypeOf(c.FPDFDest_GetDestPageIndex) = undefined;
 pub var FPDFAction_GetDest: *@TypeOf(c.FPDFAction_GetDest) = undefined;
 
@@ -101,6 +102,7 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFLink_GetDest = c_pdfium.?.lookup(@TypeOf(FPDFLink_GetDest), "FPDFLink_GetDest").?;
     FPDFLink_GetAction = c_pdfium.?.lookup(@TypeOf(FPDFLink_GetAction), "FPDFLink_GetAction").?;
     FPDFLink_Enumerate = c_pdfium.?.lookup(@TypeOf(FPDFLink_Enumerate), "FPDFLink_Enumerate").?;
+    FPDFLink_GetAnnotRect = c_pdfium.?.lookup(@TypeOf(FPDFLink_GetAnnotRect), "FPDFLink_GetAnnotRect").?;
     FPDFDest_GetDestPageIndex = c_pdfium.?.lookup(@TypeOf(FPDFDest_GetDestPageIndex), "FPDFDest_GetDestPageIndex").?;
     FPDFAction_GetDest = c_pdfium.?.lookup(@TypeOf(FPDFAction_GetDest), "FPDFAction_GetDest").?;
 }
@@ -455,6 +457,15 @@ pub const Link = opaque {
             return @ptrCast(action);
         }
         return null;
+    }
+
+    pub fn getAnnotationRect(self: *Link) !AnnotationRect {
+        var rect: AnnotationRect = undefined;
+        const success = FPDFLink_GetAnnotRect(@ptrCast(self), @ptrCast(&rect));
+        if (success != 1) {
+            return error.Failed;
+        }
+        return rect;
     }
 };
 
