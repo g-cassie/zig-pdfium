@@ -3,6 +3,7 @@
 //! start with main.zig instead.
 const std = @import("std");
 const builtin = @import("builtin");
+const log = std.log.scoped(.pdfium);
 const c = @cImport({
     @cInclude("fpdfview.h");
     @cInclude("fpdf_text.h");
@@ -57,6 +58,15 @@ pub var FPDFLink_GetAnnotRect: *@TypeOf(c.FPDFLink_GetAnnotRect) = undefined;
 pub var FPDFDest_GetDestPageIndex: *@TypeOf(c.FPDFDest_GetDestPageIndex) = undefined;
 pub var FPDFAction_GetDest: *@TypeOf(c.FPDFAction_GetDest) = undefined;
 
+// Bookmark related APIs
+pub var FPDFBookmark_GetFirstChild: *@TypeOf(c.FPDFBookmark_GetFirstChild) = undefined;
+pub var FPDFBookmark_GetNextSibling: *@TypeOf(c.FPDFBookmark_GetNextSibling) = undefined;
+pub var FPDFBookmark_GetTitle: *@TypeOf(c.FPDFBookmark_GetTitle) = undefined;
+pub var FPDFBookmark_GetCount: *@TypeOf(c.FPDFBookmark_GetCount) = undefined;
+pub var FPDFBookmark_Find: *@TypeOf(c.FPDFBookmark_Find) = undefined;
+pub var FPDFBookmark_GetDest: *@TypeOf(c.FPDFBookmark_GetDest) = undefined;
+pub var FPDFBookmark_GetAction: *@TypeOf(c.FPDFBookmark_GetAction) = undefined;
+
 pub fn bindPdfium(path: []const u8) !void {
     defer IS_BOUND = true;
     c_pdfium = try std.DynLib.open(path);
@@ -105,6 +115,15 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFLink_GetAnnotRect = c_pdfium.?.lookup(@TypeOf(FPDFLink_GetAnnotRect), "FPDFLink_GetAnnotRect").?;
     FPDFDest_GetDestPageIndex = c_pdfium.?.lookup(@TypeOf(FPDFDest_GetDestPageIndex), "FPDFDest_GetDestPageIndex").?;
     FPDFAction_GetDest = c_pdfium.?.lookup(@TypeOf(FPDFAction_GetDest), "FPDFAction_GetDest").?;
+
+    // Bookmark related APIs
+    FPDFBookmark_GetFirstChild = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_GetFirstChild), "FPDFBookmark_GetFirstChild").?;
+    FPDFBookmark_GetNextSibling = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_GetNextSibling), "FPDFBookmark_GetNextSibling").?;
+    FPDFBookmark_GetTitle = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_GetTitle), "FPDFBookmark_GetTitle").?;
+    FPDFBookmark_GetCount = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_GetCount), "FPDFBookmark_GetCount").?;
+    FPDFBookmark_Find = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_Find), "FPDFBookmark_Find").?;
+    FPDFBookmark_GetDest = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_GetDest), "FPDFBookmark_GetDest").?;
+    FPDFBookmark_GetAction = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_GetAction), "FPDFBookmark_GetAction").?;
 }
 
 pub const Error = error{
@@ -179,6 +198,13 @@ pub const Document = opaque {
         } else {
             return error.LoadFailed;
         }
+    }
+
+    pub fn getFirstBookmark(self: *Document) ?*Bookmark {
+        if (FPDFBookmark_GetFirstChild(@ptrCast(self), null)) |bookmark| {
+            return @ptrCast(bookmark);
+        }
+        return null;
     }
 };
 
@@ -479,6 +505,83 @@ pub const Action = opaque {
     pub fn getDest(self: *Action, document: *Document) ?*Destination {
         if (FPDFAction_GetDest(@ptrCast(document), @ptrCast(self))) |dest| {
             return @ptrCast(dest);
+        }
+        return null;
+    }
+};
+
+const UTF16_NUL = [_]u8{ 0, 0 };
+
+pub const Bookmark = opaque {
+    pub fn getFirstChild(self: *Bookmark, document: *Document) ?*Bookmark {
+        if (FPDFBookmark_GetFirstChild(@ptrCast(document), @ptrCast(self))) |child| {
+            return @ptrCast(child);
+        }
+        return null;
+    }
+
+    pub fn getNextSibling(self: *Bookmark, document: *Document) ?*Bookmark {
+        if (FPDFBookmark_GetNextSibling(@ptrCast(document), @ptrCast(self))) |sibling| {
+            return @ptrCast(sibling);
+        }
+        return null;
+    }
+
+    pub fn getTitle(self: *Bookmark, allocator: std.mem.Allocator) ![]u8 {
+        const len: usize = @intCast(FPDFBookmark_GetTitle(@ptrCast(self), null, 0));
+        const buffer = try allocator.alloc(u8, len);
+        const check = FPDFBookmark_GetTitle(@ptrCast(self), buffer.ptr, @intCast(len));
+
+        if (builtin.mode == .Debug) {
+            // Sanity checks that pdfium works as documented.
+            if (check != len) {
+                log.err("FPDFBookmark_GetTitle returned {d} but expected {d}", .{ check, len });
+                return error.Failed;
+            }
+
+            if (!std.mem.eql(u8, buffer[len - 2 ..], &UTF16_NUL)) {
+                log.warn("Unexpected behaviour: pdfium response was not terminated with UTF-16 NUL characters", .{});
+                return error.Failed;
+            }
+        }
+
+        return buffer;
+    }
+
+    // Get the number of chlidren of |bookmark|.
+    //
+    //   bookmark - handle to the bookmark.
+    //
+    // Returns a signed integer that represents the number of sub-items the given
+    // bookmark has. If the value is positive, child items shall be shown by default
+    // (open state). If the value is negative, child items shall be hidden by
+    // default (closed state). Please refer to PDF 32000-1:2008, Table 153.
+    // Returns 0 if the bookmark has no children or is invalid.
+    pub fn getCount(self: *Bookmark) i32 {
+        return FPDFBookmark_GetCount(@ptrCast(self));
+    }
+
+    pub fn find(document: *Document, title: []const u8) ?*Bookmark {
+        if (title.len < 2 or !std.mem.eql(u8, title[title.len - 2 ..], &UTF16_NUL)) {
+            log.err("title must be terminated with UTF-16 NUL characters", .{});
+            return null;
+        }
+        if (FPDFBookmark_Find(@ptrCast(document), title.ptr)) |bookmark| {
+            return @ptrCast(bookmark);
+        }
+        return null;
+    }
+
+    pub fn getDest(self: *Bookmark, document: *Document) ?*Destination {
+        if (FPDFBookmark_GetDest(@ptrCast(document), @ptrCast(self))) |dest| {
+            return @ptrCast(dest);
+        }
+        return null;
+    }
+
+    pub fn getAction(self: *Bookmark) ?*Action {
+        if (FPDFBookmark_GetAction(@ptrCast(self))) |action| {
+            return @ptrCast(action);
         }
         return null;
     }
