@@ -9,6 +9,8 @@ const c = @cImport({
     @cInclude("fpdf_text.h");
     @cInclude("fpdf_doc.h");
     @cInclude("fpdf_annot.h");
+    @cInclude("fpdf_save.h");
+    @cInclude("fpdf_ppo.h");
 });
 const testing = std.testing;
 const assert = std.debug.assert;
@@ -20,6 +22,24 @@ var IS_BOUND: bool = false;
 pub var c_pdfium: ?std.DynLib = null;
 pub const FPDF_GRAYSCALE = c.FPDF_GRAYSCALE;
 pub const FPDFBitmap_BGRA = c.FPDFBitmap_BGRA;
+
+pub const SaveFlags = packed struct(c_uint) {
+    incremental: bool = false,
+    no_incremental: bool = false,
+    remove_security: bool = false,
+
+    comptime {
+        assert(@as(c_uint, @bitCast(SaveFlags{ .incremental = true })) == c.FPDF_INCREMENTAL);
+        assert(@as(c_uint, @bitCast(SaveFlags{ .no_incremental = true })) == c.FPDF_NO_INCREMENTAL);
+        assert(@as(c_uint, @bitCast(SaveFlags{ .remove_security = true })) == c.FPDF_REMOVE_SECURITY);
+    }
+};
+
+pub const FileWrite = extern struct {
+    version: c_int,
+    write_block: *const fn (self: *FileWrite, data: [*]const u8, size: usize) callconv(.C) c_int,
+};
+
 // pub var FPDF_LoadDocument: *const fn ([*c]const u8, [*c]u8) callconv(.C) c.FPDF_DOCUMENT = undefined;
 pub var FPDF_LoadDocument: *@TypeOf(c.FPDF_LoadDocument) = undefined;
 pub var FPDF_InitLibrary: *@TypeOf(c.FPDF_InitLibrary) = undefined;
@@ -67,6 +87,7 @@ pub var FPDFBookmark_GetCount: *@TypeOf(c.FPDFBookmark_GetCount) = undefined;
 pub var FPDFBookmark_Find: *@TypeOf(c.FPDFBookmark_Find) = undefined;
 pub var FPDFBookmark_GetDest: *@TypeOf(c.FPDFBookmark_GetDest) = undefined;
 pub var FPDFBookmark_GetAction: *@TypeOf(c.FPDFBookmark_GetAction) = undefined;
+pub var FPDF_SaveAsCopy: *@TypeOf(c.FPDF_SaveAsCopy) = undefined;
 
 pub fn bindPdfium(path: []const u8) !void {
     defer IS_BOUND = true;
@@ -126,6 +147,7 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFBookmark_Find = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_Find), "FPDFBookmark_Find").?;
     FPDFBookmark_GetDest = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_GetDest), "FPDFBookmark_GetDest").?;
     FPDFBookmark_GetAction = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_GetAction), "FPDFBookmark_GetAction").?;
+    FPDF_SaveAsCopy = c_pdfium.?.lookup(@TypeOf(FPDF_SaveAsCopy), "FPDF_SaveAsCopy").?;
 }
 
 pub const Error = error{
@@ -216,6 +238,13 @@ pub const Document = opaque {
             return @ptrCast(bookmark);
         }
         return null;
+    }
+
+    pub fn saveAsCopy(self: *Document, file_write: *FileWrite, flags: SaveFlags) !void {
+        const success = FPDF_SaveAsCopy(@ptrCast(self), @ptrCast(file_write), @intFromEnum(flags));
+        if (success == 0) {
+            return getLastError();
+        }
     }
 };
 
