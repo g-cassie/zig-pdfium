@@ -11,6 +11,7 @@ const c = @cImport({
     @cInclude("fpdf_annot.h");
     @cInclude("fpdf_save.h");
     @cInclude("fpdf_ppo.h");
+    @cInclude("fpdf_edit.h");
 });
 const testing = std.testing;
 const assert = std.debug.assert;
@@ -23,29 +24,13 @@ pub var c_pdfium: ?std.DynLib = null;
 pub const FPDF_GRAYSCALE = c.FPDF_GRAYSCALE;
 pub const FPDFBitmap_BGRA = c.FPDFBitmap_BGRA;
 
-pub const SaveFlags = packed struct(c_uint) {
-    incremental: bool = false,
-    no_incremental: bool = false,
-    remove_security: bool = false,
-
-    comptime {
-        assert(@as(c_uint, @bitCast(SaveFlags{ .incremental = true })) == c.FPDF_INCREMENTAL);
-        assert(@as(c_uint, @bitCast(SaveFlags{ .no_incremental = true })) == c.FPDF_NO_INCREMENTAL);
-        assert(@as(c_uint, @bitCast(SaveFlags{ .remove_security = true })) == c.FPDF_REMOVE_SECURITY);
-    }
-};
-
-pub const FileWrite = extern struct {
-    version: c_int,
-    write_block: *const fn (self: *FileWrite, data: [*]const u8, size: usize) callconv(.C) c_int,
-};
-
 // pub var FPDF_LoadDocument: *const fn ([*c]const u8, [*c]u8) callconv(.C) c.FPDF_DOCUMENT = undefined;
 pub var FPDF_LoadDocument: *@TypeOf(c.FPDF_LoadDocument) = undefined;
 pub var FPDF_InitLibrary: *@TypeOf(c.FPDF_InitLibrary) = undefined;
 pub var FPDF_DestroyLibrary: *@TypeOf(c.FPDF_DestroyLibrary) = undefined;
 pub var FPDF_GetPageCount: *@TypeOf(c.FPDF_GetPageCount) = undefined;
 pub var FPDF_GetLastError: *@TypeOf(c.FPDF_GetLastError) = undefined;
+pub var FPDF_CreateNewDocument: *@TypeOf(c.FPDF_CreateNewDocument) = undefined;
 pub var FPDF_RenderPageBitmap: *@TypeOf(c.FPDF_RenderPageBitmap) = undefined;
 pub var FPDFBitmap_Create: *@TypeOf(c.FPDFBitmap_Create) = undefined;
 pub var FPDFBitmap_Destroy: *@TypeOf(c.FPDFBitmap_Destroy) = undefined;
@@ -88,6 +73,7 @@ pub var FPDFBookmark_Find: *@TypeOf(c.FPDFBookmark_Find) = undefined;
 pub var FPDFBookmark_GetDest: *@TypeOf(c.FPDFBookmark_GetDest) = undefined;
 pub var FPDFBookmark_GetAction: *@TypeOf(c.FPDFBookmark_GetAction) = undefined;
 pub var FPDF_SaveAsCopy: *@TypeOf(c.FPDF_SaveAsCopy) = undefined;
+pub var FPDF_ImportPagesByIndex: *@TypeOf(c.FPDF_ImportPagesByIndex) = undefined;
 
 pub fn bindPdfium(path: []const u8) !void {
     defer IS_BOUND = true;
@@ -97,6 +83,7 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDF_InitLibrary = c_pdfium.?.lookup(@TypeOf(FPDF_InitLibrary), "FPDF_InitLibrary").?;
     FPDF_DestroyLibrary = c_pdfium.?.lookup(@TypeOf(FPDF_DestroyLibrary), "FPDF_DestroyLibrary").?;
     FPDF_GetLastError = c_pdfium.?.lookup(@TypeOf(FPDF_GetLastError), "FPDF_GetLastError").?;
+    FPDF_CreateNewDocument = c_pdfium.?.lookup(@TypeOf(FPDF_CreateNewDocument), "FPDF_CreateNewDocument").?;
 
     // FPDFDocument methods
     FPDF_LoadDocument = c_pdfium.?.lookup(@TypeOf(FPDF_LoadDocument), "FPDF_LoadDocument").?;
@@ -148,6 +135,7 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFBookmark_GetDest = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_GetDest), "FPDFBookmark_GetDest").?;
     FPDFBookmark_GetAction = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_GetAction), "FPDFBookmark_GetAction").?;
     FPDF_SaveAsCopy = c_pdfium.?.lookup(@TypeOf(FPDF_SaveAsCopy), "FPDF_SaveAsCopy").?;
+    FPDF_ImportPagesByIndex = c_pdfium.?.lookup(@TypeOf(FPDF_ImportPagesByIndex), "FPDF_ImportPagesByIndex").?;
 }
 
 pub const Error = error{
@@ -207,6 +195,15 @@ fn assertLoaded() void {
 }
 
 pub const Document = opaque {
+    pub fn createNew() !*Document {
+        assertLoaded();
+        if (FPDF_CreateNewDocument()) |doc| {
+            return @ptrCast(doc);
+        } else {
+            return error.Failed;
+        }
+    }
+
     pub fn load(path: [:0]const u8) !*Document {
         assertLoaded();
         // TODO: null terminate path
@@ -246,6 +243,18 @@ pub const Document = opaque {
             return getLastError();
         }
     }
+};
+
+pub const SaveFlags = enum(c_uint) {
+    none = 0,
+    incremental = c.FPDF_INCREMENTAL,
+    no_incremental = c.FPDF_NO_INCREMENTAL,
+    remove_security = c.FPDF_REMOVE_SECURITY,
+};
+
+pub const FileWrite = extern struct {
+    version: c_int,
+    write_block: *const fn (self: *FileWrite, data: [*c]const u8, size: c_long) callconv(.C) c_int,
 };
 
 pub const Page = opaque {
@@ -626,3 +635,102 @@ pub const Bookmark = opaque {
         return null;
     }
 };
+
+pub fn importPagesByIndex(
+    dest_doc: *Document,
+    src_doc: *Document,
+    src_indices: []const usize,
+    dest_index: usize,
+) !void {
+    const success = FPDF_ImportPagesByIndex(
+        @ptrCast(dest_doc),
+        @ptrCast(src_doc),
+        @ptrCast(src_indices.ptr),
+        @intCast(src_indices.len),
+        @intCast(dest_index),
+    );
+    if (success == 0) {
+        log.err("FPDF_ImportPagesByIndex failed. According to pdfium docs this means one of the page_indices was invalid: {d}", .{src_indices});
+        return error.InvalidIndex;
+    }
+}
+
+const FileWriteWrapper = struct {
+    write: FileWrite,
+    file: std.fs.File,
+};
+
+test "can split pdf into two" {
+    try bindPdfium("vendor/pdfium-mac-arm64/lib/libpdfium.dylib");
+    initLibrary();
+    defer destroyLibrary();
+    const test_pdf = try Document.load("test/test.pdf");
+    defer test_pdf.deinit();
+
+    // Create first PDF with first two pages
+    const first_pdf = try Document.createNew();
+    defer first_pdf.deinit();
+    try importPagesByIndex(first_pdf, test_pdf, &[_]usize{ 0, 1 }, 0);
+
+    // Create second PDF with last three pages
+    const second_pdf = try Document.createNew();
+    defer second_pdf.deinit();
+    try importPagesByIndex(second_pdf, test_pdf, &[_]usize{ 2, 3, 4 }, 0);
+
+    // Save first PDF
+    var first_file = try std.fs.cwd().createFile("test/first.pdf", .{});
+    defer first_file.close();
+    var wrapper = FileWriteWrapper{
+        .write = .{
+            .version = 1,
+            .write_block = struct {
+                fn write(self: *FileWrite, data: [*c]const u8, size: c_long) callconv(.C) c_int {
+                    const wrapper: *FileWriteWrapper = @fieldParentPtr("write", self);
+                    const file = wrapper.file;
+                    // Add error handling and logging to debug the hang
+                    file.writeAll(data[0..@intCast(size)]) catch |err| {
+                        log.err("Failed to write PDF data: {}", .{err});
+                        return 0;
+                    };
+                    log.err("Wrote {d} bytes to PDF", .{size});
+                    return 1;
+                }
+            }.write,
+        },
+        .file = first_file,
+    };
+
+    {
+        log.err("Starting PDF save...", .{});
+        try first_pdf.saveAsCopy(@constCast(&wrapper.write), .none);
+        log.err("PDF save completed", .{});
+    }
+
+    // Verify file was written
+    const stat = try first_file.stat();
+    try testing.expect(stat.size > 0);
+
+    // // Save second PDF
+    // var second_file = try std.fs.cwd().createFile("test/second.pdf", .{});
+    // defer second_file.close();
+    // const second_write = FileWrite{
+    //     .version = 1,
+    //     .write_block = struct {
+    //         fn write(self: *FileWrite, data: [*c]const u8, size: c_long) callconv(.C) c_int {
+    //             const file = @as(*std.fs.File, @ptrCast(@alignCast(@constCast(self))));
+    //             _ = file.write(data[0..size]) catch return 0;
+    //             return 1;
+    //         }
+    //     }.write,
+    // };
+    // try second_pdf.saveAsCopy(@constCast(&second_write), .none);
+
+    // Verify the new PDFs have correct number of pages
+    const first_verify = try Document.load("test/first.pdf");
+    defer first_verify.deinit();
+    try testing.expectEqual(@as(usize, 2), first_verify.getPageCount());
+
+    // const second_verify = try Document.load("test/second.pdf");
+    // defer second_verify.deinit();
+    // try testing.expectEqual(@as(usize, 3), second_verify.getPageCount());
+}
