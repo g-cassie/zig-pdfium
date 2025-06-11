@@ -3,7 +3,7 @@
 //! start with main.zig instead.
 const std = @import("std");
 const builtin = @import("builtin");
-const log = std.log.scoped(.pdfium);
+pub const log = std.log.scoped(.pdfium);
 const c = @cImport({
     @cInclude("fpdfview.h");
     @cInclude("fpdf_text.h");
@@ -655,82 +655,6 @@ pub fn importPagesByIndex(
     }
 }
 
-const FileWriteWrapper = struct {
-    write: FileWrite,
-    file: std.fs.File,
-};
-
-test "can split pdf into two" {
-    try bindPdfium("vendor/pdfium-mac-arm64/lib/libpdfium.dylib");
-    initLibrary();
-    defer destroyLibrary();
-    const test_pdf = try Document.load("test/test.pdf");
-    defer test_pdf.deinit();
-
-    // Create first PDF with first two pages
-    const first_pdf = try Document.createNew();
-    defer first_pdf.deinit();
-    try importPagesByIndex(first_pdf, test_pdf, &[_]usize{ 0, 1 }, 0);
-
-    // Create second PDF with last three pages
-    const second_pdf = try Document.createNew();
-    defer second_pdf.deinit();
-    try importPagesByIndex(second_pdf, test_pdf, &[_]usize{ 2, 3, 4 }, 0);
-
-    // Save first PDF
-    var first_file = try std.fs.cwd().createFile("test/first.pdf", .{});
-    defer first_file.close();
-    var wrapper = FileWriteWrapper{
-        .write = .{
-            .version = 1,
-            .write_block = struct {
-                fn write(self: *FileWrite, data: [*c]const u8, size: c_long) callconv(.C) c_int {
-                    const wrapper: *FileWriteWrapper = @fieldParentPtr("write", self);
-                    const file = wrapper.file;
-                    // Add error handling and logging to debug the hang
-                    file.writeAll(data[0..@intCast(size)]) catch |err| {
-                        log.err("Failed to write PDF data: {}", .{err});
-                        return 0;
-                    };
-                    log.err("Wrote {d} bytes to PDF", .{size});
-                    return 1;
-                }
-            }.write,
-        },
-        .file = first_file,
-    };
-
-    {
-        log.err("Starting PDF save...", .{});
-        try first_pdf.saveAsCopy(@constCast(&wrapper.write), .none);
-        log.err("PDF save completed", .{});
-    }
-
-    // Verify file was written
-    const stat = try first_file.stat();
-    try testing.expect(stat.size > 0);
-
-    // // Save second PDF
-    // var second_file = try std.fs.cwd().createFile("test/second.pdf", .{});
-    // defer second_file.close();
-    // const second_write = FileWrite{
-    //     .version = 1,
-    //     .write_block = struct {
-    //         fn write(self: *FileWrite, data: [*c]const u8, size: c_long) callconv(.C) c_int {
-    //             const file = @as(*std.fs.File, @ptrCast(@alignCast(@constCast(self))));
-    //             _ = file.write(data[0..size]) catch return 0;
-    //             return 1;
-    //         }
-    //     }.write,
-    // };
-    // try second_pdf.saveAsCopy(@constCast(&second_write), .none);
-
-    // Verify the new PDFs have correct number of pages
-    const first_verify = try Document.load("test/first.pdf");
-    defer first_verify.deinit();
-    try testing.expectEqual(@as(usize, 2), first_verify.getPageCount());
-
-    // const second_verify = try Document.load("test/second.pdf");
-    // defer second_verify.deinit();
-    // try testing.expectEqual(@as(usize, 3), second_verify.getPageCount());
+test {
+    _ = @import("ext/save.zig");
 }
