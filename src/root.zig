@@ -316,7 +316,7 @@ pub const Page = opaque {
     }
 };
 
-const BitmapFormat = enum(c_int) {
+pub const BitmapFormat = enum(c_int) {
     unknown = c.FPDFBitmap_Unknown,
     gray = c.FPDFBitmap_Gray,
     bgr = c.FPDFBitmap_BGR,
@@ -325,7 +325,7 @@ const BitmapFormat = enum(c_int) {
     bgra_premul = c.FPDFBitmap_BGRA_Premul,
 };
 
-const BitmapRenderFlags = packed struct {
+pub const BitmapRenderFlags = packed struct {
     annot: bool = false,
     lcd_text: bool = false,
     no_nativetext: bool = false,
@@ -380,7 +380,7 @@ pub const Bitmap = opaque {
     pub fn fillRect(self: *Bitmap, x: c_int, y: c_int, width: c_int, height: c_int, color: u32) !void {
         const success = FPDFBitmap_FillRect(@ptrCast(self), x, y, width, height, color);
         if (success != 1) {
-            return error.FillFailed;
+            return error.Failed;
         }
     }
 
@@ -729,6 +729,7 @@ pub fn importPagesByIndex(
 
 test {
     _ = @import("ext/save.zig");
+    _ = @import("ext/render.zig");
 }
 
 test "tests:beforeAll" {

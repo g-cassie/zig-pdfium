@@ -73,6 +73,9 @@ pub fn build(b: *std.Build) void {
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
+    const dep_zigimg = b.dependency("zigimg", .{});
+    lib_unit_tests.root_module.addImport("zigimg", dep_zigimg.module("zigimg"));
+
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
