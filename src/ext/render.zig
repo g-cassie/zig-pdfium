@@ -21,7 +21,8 @@ pub fn renderPage(a: std.mem.Allocator, page: *pdfium.Page, format: pdfium.Bitma
     const bitmap = pdfium.Bitmap.initEx(width, height, format, buffer, stride) catch return error.OutOfMemory;
     defer bitmap.deinit();
 
-    try bitmap.fillRect(0, 0, width, height, 0);
+    // fill the background with white
+    try bitmap.fillRect(0, 0, width, height, 0xFFFFFFFF);
     bitmap.renderPage(page, 0, 0, width, height, 0, flags);
 
     return buffer;
@@ -41,6 +42,11 @@ test "renderPage" {
     defer testing.allocator.free(buffer);
 
     var image = try zigimg.ImageUnmanaged.fromRawPixelsOwned(width, height, buffer, .rgba32);
+
+    // Uncomment to generate a new test image
+    // try image.writeToFilePath(testing.allocator, "test/test_pg0.png", .{ .png = .{} });
+
+    // Read both files into memory
     const expected = try std.fs.cwd().readFileAlloc(testing.allocator, "test/test_pg0.png", std.math.maxInt(usize));
     defer testing.allocator.free(expected);
 
