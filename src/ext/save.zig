@@ -32,9 +32,6 @@ pub fn saveToFile(pdf: *Document, file: std.fs.File) !void {
 }
 
 test "saveToFile - can extract pages to a pdf and save" {
-    try lib.bindPdfium("vendor/pdfium-mac-arm64/lib/libpdfium.dylib");
-    lib.initLibrary();
-    defer lib.destroyLibrary();
     const src = try Document.load("test/test.pdf");
     defer src.deinit();
 

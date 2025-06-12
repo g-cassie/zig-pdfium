@@ -658,3 +658,12 @@ pub fn importPagesByIndex(
 test {
     _ = @import("ext/save.zig");
 }
+
+test "tests:beforeAll" {
+    try bindPdfium("vendor/pdfium-mac-arm64/lib/libpdfium.dylib");
+    initLibrary();
+}
+
+test "tests:afterAll" {
+    destroyLibrary();
+}
