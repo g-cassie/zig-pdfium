@@ -50,6 +50,7 @@ pub var FPDFText_LoadPage: *@TypeOf(c.FPDFText_LoadPage) = undefined;
 pub var FPDFText_ClosePage: *@TypeOf(c.FPDFText_ClosePage) = undefined;
 pub var FPDFText_CountRects: *@TypeOf(c.FPDFText_CountRects) = undefined;
 pub var FPDFText_GetRect: *@TypeOf(c.FPDFText_GetRect) = undefined;
+pub var FPDFText_GetBoundedText: *@TypeOf(c.FPDFText_GetBoundedText) = undefined;
 
 pub var FPDFPage_GetAnnotCount: *@TypeOf(c.FPDFPage_GetAnnotCount) = undefined;
 pub var FPDFPage_GetAnnot: *@TypeOf(c.FPDFPage_GetAnnot) = undefined;
@@ -76,6 +77,10 @@ pub var FPDF_SaveAsCopy: *@TypeOf(c.FPDF_SaveAsCopy) = undefined;
 pub var FPDF_ImportPagesByIndex: *@TypeOf(c.FPDF_ImportPagesByIndex) = undefined;
 
 pub fn bindPdfium(path: []const u8) !void {
+    if (IS_BOUND) {
+        log.warn("PDFium already bound", .{});
+        return;
+    }
     defer IS_BOUND = true;
     c_pdfium = try std.DynLib.open(path);
 
@@ -111,6 +116,7 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFText_ClosePage = c_pdfium.?.lookup(@TypeOf(FPDFText_ClosePage), "FPDFText_ClosePage").?;
     FPDFText_CountRects = c_pdfium.?.lookup(@TypeOf(FPDFText_CountRects), "FPDFText_CountRects").?;
     FPDFText_GetRect = c_pdfium.?.lookup(@TypeOf(FPDFText_GetRect), "FPDFText_GetRect").?;
+    FPDFText_GetBoundedText = c_pdfium.?.lookup(@TypeOf(FPDFText_GetBoundedText), "FPDFText_GetBoundedText").?;
 
     // Annotation and Link methods
     FPDFPage_GetAnnotCount = c_pdfium.?.lookup(@TypeOf(FPDFPage_GetAnnotCount), "FPDFPage_GetAnnotCount").?;
@@ -408,6 +414,7 @@ pub const TextPage = opaque {
         FPDFText_ClosePage(@ptrCast(self));
     }
 
+    // Note: it seems like you need to call countRects before calling this or it will not work.
     pub fn getRect(self: *TextPage, index: usize) !TextPageRect {
         var r: TextPageRect = .{
             .left = std.math.floatMax(f64),
@@ -434,7 +441,72 @@ pub const TextPage = opaque {
         }
         return @intCast(result);
     }
+
+    /// Extract text within a rectangular boundary on the page.
+    /// If buffer is null or buflen is zero, returns the number of UTF-16 values needed.
+    /// Otherwise, copies the text into the buffer and returns the number of UTF-16 values copied.
+    /// The text is in UTF-16 format and includes a terminating NUL if space is available.
+    pub fn getBoundedText(
+        self: *TextPage,
+        rect: TextPageRect,
+        allocator: std.mem.Allocator,
+    ) ![]u16 {
+        // First call to get required length
+        const len: usize = @intCast(FPDFText_GetBoundedText(
+            @ptrCast(self),
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+            null,
+            0,
+        ));
+
+        // Allocate buffer
+        const buffer = try allocator.alloc(u16, len);
+        errdefer allocator.free(buffer);
+
+        // Second call to get actual text
+        const copied: usize = @intCast(FPDFText_GetBoundedText(
+            @ptrCast(self),
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+            @ptrCast(buffer.ptr),
+            @intCast(buffer.len),
+        ));
+
+        if (copied != buffer.len) {
+            log.warn("FPDFText_GetBoundedText returned {d} but expected {d}", .{ copied, buffer.len });
+            return error.Failed;
+        }
+
+        return buffer;
+    }
 };
+
+test "getBoundedText" {
+    const test_pdf = try Document.load("test/test.pdf");
+    defer test_pdf.deinit();
+    const page = try test_pdf.loadPage(0);
+    defer page.deinit();
+
+    const text_page = try page.loadTextPage();
+    defer text_page.deinit();
+
+    try testing.expect(try text_page.countRects(0, null) > 0);
+
+    const rect = try text_page.getRect(1);
+    const text = try text_page.getBoundedText(rect, testing.allocator);
+    defer testing.allocator.free(text);
+
+    const utf8_text = try std.unicode.utf16LeToUtf8Alloc(testing.allocator, text);
+    defer testing.allocator.free(utf8_text);
+
+    try testing.expectEqualStrings("Introduction", utf8_text);
+}
+
 pub const AnnotationSubtype = enum(c_int) {
     unknown = c.FPDF_ANNOT_UNKNOWN,
     text = c.FPDF_ANNOT_TEXT,
