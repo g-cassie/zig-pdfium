@@ -17,6 +17,9 @@ const testing = std.testing;
 const assert = std.debug.assert;
 const panic = std.debug.panic;
 
+pub const render = @import("ext/render.zig");
+pub const save = @import("ext/save.zig");
+
 var DID_INIT: bool = false;
 var IS_BOUND: bool = false;
 
