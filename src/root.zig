@@ -55,6 +55,14 @@ pub var FPDFText_CountRects: *@TypeOf(c.FPDFText_CountRects) = undefined;
 pub var FPDFText_GetRect: *@TypeOf(c.FPDFText_GetRect) = undefined;
 pub var FPDFText_GetBoundedText: *@TypeOf(c.FPDFText_GetBoundedText) = undefined;
 
+// FPDFText_Find* functions
+pub var FPDFText_FindStart: *@TypeOf(c.FPDFText_FindStart) = undefined;
+pub var FPDFText_FindNext: *@TypeOf(c.FPDFText_FindNext) = undefined;
+pub var FPDFText_FindPrev: *@TypeOf(c.FPDFText_FindPrev) = undefined;
+pub var FPDFText_GetSchResultIndex: *@TypeOf(c.FPDFText_GetSchResultIndex) = undefined;
+pub var FPDFText_GetSchCount: *@TypeOf(c.FPDFText_GetSchCount) = undefined;
+pub var FPDFText_FindClose: *@TypeOf(c.FPDFText_FindClose) = undefined;
+
 pub var FPDFPage_GetAnnotCount: *@TypeOf(c.FPDFPage_GetAnnotCount) = undefined;
 pub var FPDFPage_GetAnnot: *@TypeOf(c.FPDFPage_GetAnnot) = undefined;
 pub var FPDFPage_CloseAnnot: *@TypeOf(c.FPDFPage_CloseAnnot) = undefined;
@@ -120,6 +128,14 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFText_CountRects = c_pdfium.?.lookup(@TypeOf(FPDFText_CountRects), "FPDFText_CountRects").?;
     FPDFText_GetRect = c_pdfium.?.lookup(@TypeOf(FPDFText_GetRect), "FPDFText_GetRect").?;
     FPDFText_GetBoundedText = c_pdfium.?.lookup(@TypeOf(FPDFText_GetBoundedText), "FPDFText_GetBoundedText").?;
+
+    // FPDFText_Find* functions
+    FPDFText_FindStart = c_pdfium.?.lookup(@TypeOf(FPDFText_FindStart), "FPDFText_FindStart").?;
+    FPDFText_FindNext = c_pdfium.?.lookup(@TypeOf(FPDFText_FindNext), "FPDFText_FindNext").?;
+    FPDFText_FindPrev = c_pdfium.?.lookup(@TypeOf(FPDFText_FindPrev), "FPDFText_FindPrev").?;
+    FPDFText_GetSchResultIndex = c_pdfium.?.lookup(@TypeOf(FPDFText_GetSchResultIndex), "FPDFText_GetSchResultIndex").?;
+    FPDFText_GetSchCount = c_pdfium.?.lookup(@TypeOf(FPDFText_GetSchCount), "FPDFText_GetSchCount").?;
+    FPDFText_FindClose = c_pdfium.?.lookup(@TypeOf(FPDFText_FindClose), "FPDFText_FindClose").?;
 
     // Annotation and Link methods
     FPDFPage_GetAnnotCount = c_pdfium.?.lookup(@TypeOf(FPDFPage_GetAnnotCount), "FPDFPage_GetAnnotCount").?;
@@ -412,6 +428,20 @@ pub const TextPageRect = struct {
     bottom: f64,
 };
 
+pub const SearchFlags = packed struct {
+    match_case: bool = false,
+    match_whole_word: bool = false,
+    consecutive: bool = false,
+    _padding: u29 = 0,
+};
+
+comptime {
+    assert(@sizeOf(SearchFlags) == @sizeOf(c_uint));
+    assert(@as(c_uint, @bitCast(SearchFlags{ .match_case = true })) == c.FPDF_MATCHCASE);
+    assert(@as(c_uint, @bitCast(SearchFlags{ .match_whole_word = true })) == c.FPDF_MATCHWHOLEWORD);
+    assert(@as(c_uint, @bitCast(SearchFlags{ .consecutive = true })) == c.FPDF_CONSECUTIVE);
+}
+
 pub const TextPage = opaque {
     pub fn deinit(self: *TextPage) void {
         FPDFText_ClosePage(@ptrCast(self));
@@ -487,6 +517,59 @@ pub const TextPage = opaque {
 
         return buffer;
     }
+
+    /// Start a search for text on this page.
+    ///
+    /// Parameters:
+    ///   findwhat    - A unicode match pattern (UTF-16)
+    ///   flags       - Search option flags
+    ///   start_index - Start from this character. -1 for end of the page.
+    ///
+    /// Returns a SearchHandle that must be closed with deinit().
+    pub fn findStart(
+        self: *TextPage,
+        findwhat: []const u16,
+        flags: SearchFlags,
+        start_index: i32,
+    ) !*SearchHandle {
+        if (FPDFText_FindStart(@ptrCast(self), @ptrCast(findwhat.ptr), @as(c_uint, @bitCast(flags)), start_index)) |handle| {
+            return @ptrCast(handle);
+        } else {
+            return error.SearchFailed;
+        }
+    }
+};
+
+pub const SearchHandle = opaque {
+    /// Search in the direction from page start to end.
+    /// Returns true if a match is found, false otherwise.
+    pub fn findNext(self: *SearchHandle) bool {
+        return FPDFText_FindNext(@ptrCast(self)) != 0;
+    }
+
+    /// Search in the direction from page end to start.
+    /// Returns true if a match is found, false otherwise.
+    pub fn findPrev(self: *SearchHandle) bool {
+        return FPDFText_FindPrev(@ptrCast(self)) != 0;
+    }
+
+    /// Get the starting character index of the search result.
+    /// Returns the index for the starting character.
+    pub fn getResultIndex(self: *SearchHandle) i32 {
+        return FPDFText_GetSchResultIndex(@ptrCast(self));
+    }
+
+    /// Get the number of matched characters in the search result.
+    /// Returns the number of matched characters.
+    pub fn getCount(self: *SearchHandle) i32 {
+        return FPDFText_GetSchCount(@ptrCast(self));
+    }
+
+    /// Release the search context.
+    /// This must be called to free resources.
+    pub fn deinit(self: *SearchHandle) void {
+        FPDFText_FindClose(@ptrCast(self));
+    }
 };
 
 test "getBoundedText" {
@@ -508,6 +591,35 @@ test "getBoundedText" {
     defer testing.allocator.free(utf8_text);
 
     try testing.expectEqualStrings("Introduction", utf8_text);
+}
+
+test "text search" {
+    const test_pdf = try Document.load("test/test.pdf");
+    defer test_pdf.deinit();
+    const page = try test_pdf.loadPage(0);
+    defer page.deinit();
+
+    const text_page = try page.loadTextPage();
+    defer text_page.deinit();
+
+    // Convert "Introduction" to UTF-16
+    const search_text = try std.unicode.utf8ToUtf16LeAllocZ(testing.allocator, "Introduction");
+    defer testing.allocator.free(search_text);
+
+    const search_handle = try text_page.findStart(search_text, .{}, 0);
+    defer search_handle.deinit();
+
+    // Should find the first occurrence
+    try testing.expect(search_handle.findNext());
+
+    const result_index = search_handle.getResultIndex();
+    const result_count = search_handle.getCount();
+
+    try testing.expect(result_index >= 0);
+    try testing.expect(result_count > 0);
+
+    // Should not find a second occurrence
+    try testing.expect(!search_handle.findNext());
 }
 
 pub const AnnotationSubtype = enum(c_int) {
