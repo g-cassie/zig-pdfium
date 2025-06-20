@@ -573,16 +573,17 @@ pub const TextPage = opaque {
     /// Parameters:
     ///   findwhat    - A unicode match pattern (UTF-16)
     ///   flags       - Search option flags
-    ///   start_index - Start from this character. -1 for end of the page.
+    ///   start_index - Start from this character. null for end of the page.
     ///
     /// Returns a SearchHandle that must be closed with deinit().
     pub fn findStart(
         self: *TextPage,
         findwhat: []const u16,
         flags: SearchFlags,
-        start_index: i32,
+        start_index: ?i32,
     ) !*SearchHandle {
-        if (FPDFText_FindStart(@ptrCast(self), @ptrCast(findwhat.ptr), @as(c_uint, @bitCast(flags)), start_index)) |handle| {
+        const start_index_c: c_int = if (start_index) |x| @intCast(x) else -1;
+        if (FPDFText_FindStart(@ptrCast(self), @ptrCast(findwhat.ptr), @as(c_uint, @bitCast(flags)), start_index_c)) |handle| {
             return @ptrCast(handle);
         } else {
             return error.SearchFailed;
