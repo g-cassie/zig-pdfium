@@ -54,6 +54,8 @@ pub var FPDFText_ClosePage: *@TypeOf(c.FPDFText_ClosePage) = undefined;
 pub var FPDFText_CountRects: *@TypeOf(c.FPDFText_CountRects) = undefined;
 pub var FPDFText_GetRect: *@TypeOf(c.FPDFText_GetRect) = undefined;
 pub var FPDFText_GetBoundedText: *@TypeOf(c.FPDFText_GetBoundedText) = undefined;
+pub var FPDFText_GetText: *@TypeOf(c.FPDFText_GetText) = undefined;
+pub var FPDFText_CountChars: *@TypeOf(c.FPDFText_CountChars) = undefined;
 
 // FPDFText_Find* functions
 pub var FPDFText_FindStart: *@TypeOf(c.FPDFText_FindStart) = undefined;
@@ -128,6 +130,8 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFText_CountRects = c_pdfium.?.lookup(@TypeOf(FPDFText_CountRects), "FPDFText_CountRects").?;
     FPDFText_GetRect = c_pdfium.?.lookup(@TypeOf(FPDFText_GetRect), "FPDFText_GetRect").?;
     FPDFText_GetBoundedText = c_pdfium.?.lookup(@TypeOf(FPDFText_GetBoundedText), "FPDFText_GetBoundedText").?;
+    FPDFText_GetText = c_pdfium.?.lookup(@TypeOf(FPDFText_GetText), "FPDFText_GetText").?;
+    FPDFText_CountChars = c_pdfium.?.lookup(@TypeOf(FPDFText_CountChars), "FPDFText_CountChars").?;
 
     // FPDFText_Find* functions
     FPDFText_FindStart = c_pdfium.?.lookup(@TypeOf(FPDFText_FindStart), "FPDFText_FindStart").?;
@@ -518,6 +522,52 @@ pub const TextPage = opaque {
         return buffer;
     }
 
+    pub fn countChars(self: *TextPage) !usize {
+        const result = FPDFText_CountChars(@ptrCast(self));
+        if (result < 0) {
+            return error.Failed;
+        }
+        return @intCast(result);
+    }
+
+    pub fn getText(
+        self: *TextPage,
+        allocator: std.mem.Allocator,
+        start_index: usize,
+        count: ?usize,
+    ) ![:0]u16 {
+        const char_count: c_int = b: {
+            if (count) |x| {
+                break :b @intCast(x);
+            } else {
+                const total_chars = try self.countChars();
+                break :b @intCast(total_chars - start_index);
+            }
+        };
+        if (char_count < 0) return error.Failed;
+        if (char_count == 0) {
+            return std.mem.concatWithSentinel(allocator, u16, &.{}, 0);
+        }
+        // Allocate buffer for char_count + 1 (for terminator)
+        const buf_len: usize = @intCast(char_count + 1);
+        const buffer = try allocator.alloc(u16, buf_len);
+        errdefer allocator.free(buffer);
+
+        // Call FPDFText_GetText
+        const copied: usize = @intCast(FPDFText_GetText(
+            @ptrCast(self),
+            @as(c_int, @intCast(start_index)),
+            char_count,
+            @ptrCast(buffer.ptr),
+        ));
+
+        if (copied != buffer.len) {
+            log.err("FPDFText_GetText wrote {d} characters but we expected {d}", .{ copied, buffer.len });
+            return error.Failed;
+        }
+        return buffer[0 .. buffer.len - 1 :0];
+    }
+
     /// Start a search for text on this page.
     ///
     /// Parameters:
@@ -555,14 +605,14 @@ pub const SearchHandle = opaque {
 
     /// Get the starting character index of the search result.
     /// Returns the index for the starting character.
-    pub fn getResultIndex(self: *SearchHandle) i32 {
-        return FPDFText_GetSchResultIndex(@ptrCast(self));
+    pub fn getResultIndex(self: *SearchHandle) usize {
+        return @intCast(FPDFText_GetSchResultIndex(@ptrCast(self)));
     }
 
     /// Get the number of matched characters in the search result.
     /// Returns the number of matched characters.
-    pub fn getCount(self: *SearchHandle) i32 {
-        return FPDFText_GetSchCount(@ptrCast(self));
+    pub fn getCount(self: *SearchHandle) usize {
+        return @intCast(FPDFText_GetSchCount(@ptrCast(self)));
     }
 
     /// Release the search context.
@@ -618,8 +668,51 @@ test "text search" {
     try testing.expect(result_index >= 0);
     try testing.expect(result_count > 0);
 
+    const result_text = try text_page.getText(testing.allocator, result_index, result_count);
+    defer testing.allocator.free(result_text);
+    const result_utf8 = try std.unicode.utf16LeToUtf8Alloc(testing.allocator, result_text);
+    defer testing.allocator.free(result_utf8);
+    try testing.expectEqualStrings("Introduction", result_utf8);
+
     // Should not find a second occurrence
     try testing.expect(!search_handle.findNext());
+}
+
+test "getText" {
+    const test_pdf = try Document.load("test/test.pdf");
+    defer test_pdf.deinit();
+    const page = try test_pdf.loadPage(0);
+    defer page.deinit();
+
+    const text_page = try page.loadTextPage();
+    defer text_page.deinit();
+
+    // Get all text from the page
+    const text = try text_page.getText(testing.allocator, 0, null);
+    defer testing.allocator.free(text);
+
+    log.info("getText returned {d} UTF-16 characters", .{text.len});
+
+    const utf8_text = try std.unicode.utf16LeToUtf8Alloc(testing.allocator, text);
+    defer testing.allocator.free(utf8_text);
+
+    log.info("Converted to UTF-8: '{s}'", .{utf8_text});
+
+    // Should contain some text
+    try testing.expect(utf8_text.len > 0);
+
+    // Should contain "Introduction" somewhere in the text
+    try testing.expect(std.mem.indexOf(u8, utf8_text, "Introduction") != null);
+
+    // Test getting a specific range
+    const partial_text = try text_page.getText(testing.allocator, 0, 20);
+    defer testing.allocator.free(partial_text);
+
+    const partial_utf8 = try std.unicode.utf16LeToUtf8Alloc(testing.allocator, partial_text);
+    defer testing.allocator.free(partial_utf8);
+
+    // Partial text should be shorter than full text
+    try testing.expect(partial_utf8.len <= utf8_text.len);
 }
 
 pub const AnnotationSubtype = enum(c_int) {
