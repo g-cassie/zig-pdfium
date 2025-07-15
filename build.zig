@@ -33,7 +33,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lib_mod.addIncludePath(b.path("vendor/pdfium-mac-arm64/include"));
+    lib_mod.addIncludePath(b.path("include/7215"));
 
     // Declare a separate module for testing so we can include the zigimg dependency
     // without it being part of the main library
@@ -42,9 +42,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const dep_zigimg = b.dependency("zigimg", .{});
-    lib_mod_test.addImport("zigimg", dep_zigimg.module("zigimg"));
-    lib_mod_test.addIncludePath(b.path("vendor/pdfium-mac-arm64/include"));
+
+    // zigimg is used to verify outputs during testing
+    {
+        const dep_zigimg = b.dependency("zigimg", .{});
+        lib_mod_test.addImport("zigimg", dep_zigimg.module("zigimg"));
+    }
+
+    lib_mod_test.addIncludePath(b.path("include/7215"));
 
     const lib = b.addLibrary(.{
         .linkage = .static,

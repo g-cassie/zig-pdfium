@@ -942,7 +942,13 @@ test {
 }
 
 test "tests:beforeAll" {
-    try bindPdfium("vendor/pdfium-mac-arm64/lib/libpdfium.dylib");
+    bindPdfium("pdfium-binary/libpdfium.dylib") catch |err| switch (err) {
+        error.FileNotFound => {
+            log.err("libpdfium.dylib not found. Please follow the instructions in the READ me to download it.", .{});
+            return;
+        },
+        else => return err,
+    };
     initLibrary();
 }
 

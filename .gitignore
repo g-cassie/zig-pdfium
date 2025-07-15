@@ -1,6 +1,6 @@
-vendor/pdfium*
 **/.DS_Store
 
 .zig-cache/*
 zig-build/*
 zig-out/*
+pdfium-binary/*

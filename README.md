@@ -1,12 +1,18 @@
 
 # Getting pdfium
-The easiest way to get started is to grab a prebuild pdfium binary from
+To use zig-pdfium you will need a prebuilt binary of the pdfium library from 
 https://github.com/bblanchon/pdfium-binaries
 
-And drop it in vendor/
+Choose a release that corresponds to a folder in `include/*` (for example 7125).
 
-# Structure
+Extract libpdfium.dylib and place it in `pdfium-binary/` folder. If you are not
+on a Mac, place the appopriate file and update the bottom of `root.zig` to branch for 
+your OS and use the correct path.
 
-`ext/` contains code that extends the pdfium library for convenience. The
-goal is to only provide extensions in extremely obvious cases - like
-saving files.
+# Philosophy
+
+`zig-pdfium` aims to be purely a ziggified version of the raw pdfium C API. 
+Any additional should likely not be part of this library. Where it makes
+overwhelming sense to do more than simply wrap the C API, that code should
+go in the `ext/` folder.  The goal is to only provide extensions in extremely
+obvious cases - like saving files.
