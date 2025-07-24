@@ -69,8 +69,9 @@
             .path = "vendor/pdfium-mac-arm64",
         },
         .zigimg = .{
-            .url = "git+https://github.com/zigimg/zigimg.git#74caab5edd7c5f1d2f7d87e5717435ce0f0affa1",
-            .hash = "zigimg-0.1.0-8_eo2nWlEgCddu8EGLOM_RkYshx3sC8tWv-yYA4-htS6",
+            .url = "git+https://github.com/zigimg/zigimg.git#939ab2bf7179beaefd65a230c817f8b5b76544d3",
+            .hash = "zigimg-0.1.0-8_eo2ulUEwC_QUUYVDJUVzV5buJMAOePVmw5f32GC5qL",
+            .lazy = true,
         },
     },
 
