@@ -891,7 +891,10 @@ pub const Bookmark = opaque {
         return FPDFBookmark_GetCount(@ptrCast(self));
     }
 
-    pub fn find(document: *Document, title: []const u16) ?*Bookmark {
+    pub fn find(document: *Document, title: []const c_ushort) ?*Bookmark {
+        // Note: c_ushort is used to match PDFium's API expectation. While c_ushort is
+        // typically equivalent to u16 on most platforms, it's not guaranteed to be
+        // the same size on every platform. Using c_ushort ensures ABI compatibility.
         if (title.len == 0 or title[title.len - 1] != 0) {
             log.err("title must be terminated with UTF-16 NUL character", .{});
             return null;
@@ -938,10 +941,10 @@ test "find bookmark" {
     const test_pdf = try Document.load("test/test.pdf");
     defer test_pdf.deinit();
 
-    const search_text = try std.unicode.utf8ToUtf16LeAlloc(testing.allocator, "Introduction\x00");
-    defer testing.allocator.free(search_text);
+    const search_text_u16 = try std.unicode.utf8ToUtf16LeAlloc(testing.allocator, "Introduction\x00");
+    defer testing.allocator.free(search_text_u16);
 
-    const found_bookmark = Bookmark.find(test_pdf, search_text);
+    const found_bookmark = Bookmark.find(test_pdf, search_text_u16);
     try testing.expect(found_bookmark != null);
 
     const title = try found_bookmark.?.getTitle(testing.allocator);
