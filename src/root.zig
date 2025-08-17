@@ -857,25 +857,34 @@ pub const Bookmark = opaque {
         return null;
     }
 
-    pub fn getTitle(self: *Bookmark, allocator: std.mem.Allocator) ![]u16 {
-        const len: usize = @intCast(FPDFBookmark_GetTitle(@ptrCast(self), null, 0));
-        const buffer = try allocator.alloc(u16, len / 2);
-        const check = FPDFBookmark_GetTitle(@ptrCast(self), @ptrCast(buffer.ptr), @intCast(len));
+    pub fn getTitle(self: *Bookmark, allocator: std.mem.Allocator) ![]u8 {
+        const size = FPDFBookmark_GetTitle(@ptrCast(self), null, 0);
 
-        if (builtin.mode == .Debug) {
-            // Sanity checks that pdfium works as documented.
-            if (check != len) {
-                log.err("FPDFBookmark_GetTitle returned {d} but expected {d}", .{ check, len });
-                return error.Failed;
+        if (size > 0) {
+            const u16_size: usize = @intCast(size / 2);
+            const u16_buffer = try allocator.alloc(u16, u16_size);
+            defer allocator.free(u16_buffer);
+
+            const check = FPDFBookmark_GetTitle(@ptrCast(self), @ptrCast(u16_buffer.ptr), size);
+
+            if (builtin.mode == .Debug) {
+                // Sanity checks that pdfium works as documented.
+                if (check != size) {
+                    log.err("FPDFBookmark_GetTitle returned {d} but expected {d}", .{ check, size });
+                    return error.Failed;
+                }
+
+                if (u16_buffer.len > 0 and u16_buffer[u16_buffer.len - 1] != 0) {
+                    log.warn("Unexpected behaviour: pdfium response was not terminated with UTF-16 NUL character", .{});
+                    return error.Failed;
+                }
             }
 
-            if (buffer.len > 0 and buffer[buffer.len - 1] != 0) {
-                log.warn("Unexpected behaviour: pdfium response was not terminated with UTF-16 NUL character", .{});
-                return error.Failed;
-            }
+            const utf16_data = u16_buffer[0 .. u16_buffer.len - 1];
+            return try std.unicode.utf16LeToUtf8Alloc(allocator, utf16_data);
+        } else {
+            return try allocator.dupe(u8, "");
         }
-
-        return buffer;
     }
 
     // Get the number of chlidren of |bookmark|.
@@ -891,15 +900,16 @@ pub const Bookmark = opaque {
         return FPDFBookmark_GetCount(@ptrCast(self));
     }
 
-    pub fn find(document: *Document, title: []const c_ushort) ?*Bookmark {
-        // Note: c_ushort is used to match PDFium's API expectation. While c_ushort is
-        // typically equivalent to u16 on most platforms, it's not guaranteed to be
-        // the same size on every platform. Using c_ushort ensures ABI compatibility.
-        if (title.len == 0 or title[title.len - 1] != 0) {
-            log.err("title must be terminated with UTF-16 NUL character", .{});
+    pub fn find(document: *Document, allocator: std.mem.Allocator, title: []const u8) ?*Bookmark {
+        const utf16_title = std.unicode.utf8ToUtf16LeAllocZ(allocator, title) catch {
             return null;
-        }
-        if (FPDFBookmark_Find(@ptrCast(document), title.ptr)) |bookmark| {
+        };
+        defer allocator.free(utf16_title);
+
+        // Cast to c_ushort for PDFium API compatibility
+        const c_ushort_title: []const c_ushort = utf16_title;
+
+        if (FPDFBookmark_Find(@ptrCast(document), c_ushort_title.ptr)) |bookmark| {
             return @ptrCast(bookmark);
         }
         return null;
@@ -929,31 +939,20 @@ test "getTitle" {
     defer testing.allocator.free(title);
 
     try testing.expect(title.len > 0);
-
-    const utf8_title = try std.unicode.utf16LeToUtf8Alloc(testing.allocator, title);
-    defer testing.allocator.free(utf8_title);
-
-    try testing.expect(utf8_title.len > 0);
-    try testing.expectEqualStrings("Introduction\x00", utf8_title);
+    try testing.expectEqualStrings("Introduction", title);
 }
 
 test "find bookmark" {
     const test_pdf = try Document.load("test/test.pdf");
     defer test_pdf.deinit();
 
-    const search_text_u16 = try std.unicode.utf8ToUtf16LeAlloc(testing.allocator, "Introduction\x00");
-    defer testing.allocator.free(search_text_u16);
-
-    const found_bookmark = Bookmark.find(test_pdf, search_text_u16);
+    const found_bookmark = Bookmark.find(test_pdf, testing.allocator, "Introduction");
     try testing.expect(found_bookmark != null);
 
     const title = try found_bookmark.?.getTitle(testing.allocator);
     defer testing.allocator.free(title);
 
-    const utf8_title = try std.unicode.utf16LeToUtf8Alloc(testing.allocator, title);
-    defer testing.allocator.free(utf8_title);
-
-    try testing.expectEqualStrings("Introduction\x00", utf8_title);
+    try testing.expectEqualStrings("Introduction", title);
 }
 
 pub fn importPagesByIndex(
