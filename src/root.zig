@@ -891,9 +891,9 @@ pub const Bookmark = opaque {
         return FPDFBookmark_GetCount(@ptrCast(self));
     }
 
-    pub fn find(document: *Document, title: []const u8) ?*Bookmark {
-        if (title.len < 2 or !std.mem.eql(u8, title[title.len - 2 ..], &UTF16_NUL)) {
-            log.err("title must be terminated with UTF-16 NUL characters", .{});
+    pub fn find(document: *Document, title: []const u16) ?*Bookmark {
+        if (title.len == 0 or title[title.len - 1] != 0) {
+            log.err("title must be terminated with UTF-16 NUL character", .{});
             return null;
         }
         if (FPDFBookmark_Find(@ptrCast(document), title.ptr)) |bookmark| {
@@ -931,6 +931,25 @@ test "getTitle" {
     defer testing.allocator.free(utf8_title);
 
     try testing.expect(utf8_title.len > 0);
+    try testing.expectEqualStrings("Introduction\x00", utf8_title);
+}
+
+test "find bookmark" {
+    const test_pdf = try Document.load("test/test.pdf");
+    defer test_pdf.deinit();
+
+    const search_text = try std.unicode.utf8ToUtf16LeAlloc(testing.allocator, "Introduction\x00");
+    defer testing.allocator.free(search_text);
+
+    const found_bookmark = Bookmark.find(test_pdf, search_text);
+    try testing.expect(found_bookmark != null);
+
+    const title = try found_bookmark.?.getTitle(testing.allocator);
+    defer testing.allocator.free(title);
+
+    const utf8_title = try std.unicode.utf16LeToUtf8Alloc(testing.allocator, title);
+    defer testing.allocator.free(utf8_title);
+
     try testing.expectEqualStrings("Introduction\x00", utf8_title);
 }
 
