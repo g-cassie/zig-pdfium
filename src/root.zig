@@ -881,8 +881,12 @@ pub const Bookmark = opaque {
     pub fn getTitleUtf8(self: *Bookmark, allocator: std.mem.Allocator) ![]u8 {
         const utf16_title = try self.getTitleUtf16(allocator);
         defer allocator.free(utf16_title);
-        const utf16_data = utf16_title[0 .. utf16_title.len - 1];
-        return try std.unicode.utf16LeToUtf8Alloc(allocator, utf16_data);
+        if (utf16_title.len > 1) {
+            const utf16_data = utf16_title[0 .. utf16_title.len - 1];
+            return try std.unicode.utf16LeToUtf8Alloc(allocator, utf16_data);
+        } else {
+            return try allocator.dupe(u8, "");
+        }
     }
 
     // Get the number of chlidren of |bookmark|.
