@@ -49,7 +49,6 @@ pub fn build(b: *std.Build) void {
         lib_mod_test.addImport("zigimg", dep_zigimg.module("zigimg"));
     }
 
-
     lib_mod_test.addIncludePath(b.path("include/7215"));
 
     const lib = b.addLibrary(.{
