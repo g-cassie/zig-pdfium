@@ -49,6 +49,7 @@ pub fn build(b: *std.Build) void {
         lib_mod_test.addImport("zigimg", dep_zigimg.module("zigimg"));
     }
 
+
     lib_mod_test.addIncludePath(b.path("include/7215"));
 
     const lib = b.addLibrary(.{
@@ -62,6 +63,7 @@ pub fn build(b: *std.Build) void {
         .root_module = lib_mod_test,
         .test_runner = .{ .path = b.path("src/test_runner.zig"), .mode = .simple },
     });
+    lib_unit_tests.linkLibC();
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const test_step = b.step("test", "Run unit tests");

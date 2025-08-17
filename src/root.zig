@@ -857,10 +857,10 @@ pub const Bookmark = opaque {
         return null;
     }
 
-    pub fn getTitle(self: *Bookmark, allocator: std.mem.Allocator) ![]u8 {
+    pub fn getTitle(self: *Bookmark, allocator: std.mem.Allocator) ![]u16 {
         const len: usize = @intCast(FPDFBookmark_GetTitle(@ptrCast(self), null, 0));
-        const buffer = try allocator.alloc(u8, len);
-        const check = FPDFBookmark_GetTitle(@ptrCast(self), buffer.ptr, @intCast(len));
+        const buffer = try allocator.alloc(u16, len / 2);
+        const check = FPDFBookmark_GetTitle(@ptrCast(self), @ptrCast(buffer.ptr), @intCast(len));
 
         if (builtin.mode == .Debug) {
             // Sanity checks that pdfium works as documented.
@@ -869,8 +869,8 @@ pub const Bookmark = opaque {
                 return error.Failed;
             }
 
-            if (!std.mem.eql(u8, buffer[len - 2 ..], &UTF16_NUL)) {
-                log.warn("Unexpected behaviour: pdfium response was not terminated with UTF-16 NUL characters", .{});
+            if (buffer.len > 0 and buffer[buffer.len - 1] != 0) {
+                log.warn("Unexpected behaviour: pdfium response was not terminated with UTF-16 NUL character", .{});
                 return error.Failed;
             }
         }
@@ -917,6 +917,23 @@ pub const Bookmark = opaque {
     }
 };
 
+test "getTitle" {
+    const test_pdf = try Document.load("test/test.pdf");
+    defer test_pdf.deinit();
+
+    const bm = test_pdf.getFirstBookmark();
+    const title = try bm.?.getTitle(testing.allocator);
+    defer testing.allocator.free(title);
+
+    try testing.expect(title.len > 0);
+
+    const utf8_title = try std.unicode.utf16LeToUtf8Alloc(testing.allocator, title);
+    defer testing.allocator.free(utf8_title);
+
+    try testing.expect(utf8_title.len > 0);
+    try testing.expectEqualStrings("Introduction\x00", utf8_title);
+}
+
 pub fn importPagesByIndex(
     dest_doc: *Document,
     src_doc: *Document,
@@ -942,13 +959,20 @@ test {
 }
 
 test "tests:beforeAll" {
-    bindPdfium("pdfium-binary/libpdfium.dylib") catch |err| switch (err) {
+    const bin_path = switch (builtin.os.tag) {
+        .macos => "pdfium-binary/libpdfium.dylib",
+        .linux => "pdfium-binary/libpdfium.so",
+        else => unreachable,
+    };
+
+    bindPdfium(bin_path) catch |err| switch (err) {
         error.FileNotFound => {
-            log.err("libpdfium.dylib not found. Please follow the instructions in the READ me to download it.", .{});
+            log.err("{s} not found. Please follow the instructions in the READ me to download it.", .{bin_path});
             return;
         },
         else => return err,
     };
+
     initLibrary();
 }
 
