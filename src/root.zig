@@ -27,7 +27,7 @@ pub var c_pdfium: ?std.DynLib = null;
 pub const FPDF_GRAYSCALE = c.FPDF_GRAYSCALE;
 pub const FPDFBitmap_BGRA = c.FPDFBitmap_BGRA;
 
-// pub var FPDF_LoadDocument: *const fn ([*c]const u8, [*c]u8) callconv(.C) c.FPDF_DOCUMENT = undefined;
+// pub var FPDF_LoadDocument: *const fn ([*c]const u8, [*c]u8) callconv(.c) c.FPDF_DOCUMENT = undefined;
 pub var FPDF_LoadDocument: *@TypeOf(c.FPDF_LoadDocument) = undefined;
 pub var FPDF_InitLibrary: *@TypeOf(c.FPDF_InitLibrary) = undefined;
 pub var FPDF_DestroyLibrary: *@TypeOf(c.FPDF_DestroyLibrary) = undefined;
@@ -283,7 +283,7 @@ pub const SaveFlags = enum(c_uint) {
 
 pub const FileWrite = extern struct {
     version: c_int,
-    write_block: *const fn (self: *FileWrite, data: [*c]const u8, size: c_long) callconv(.C) c_int,
+    write_block: *const fn (self: *FileWrite, data: [*c]const u8, size: c_long) callconv(.c) c_int,
 };
 
 pub const Page = opaque {
