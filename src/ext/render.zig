@@ -22,7 +22,7 @@ pub fn renderPage(a: std.mem.Allocator, page: *pdfium.Page, format: pdfium.Bitma
     defer bitmap.deinit();
 
     // fill the background with white
-    try bitmap.fillRect(0, 0, width, height, 0xFFFFFFFF);
+    try bitmap.fillRect(0, 0, width, height, @bitCast(@as(c_ulong, 0xFFFFFFFF)));
     bitmap.renderPage(page, 0, 0, width, height, 0, flags);
 
     return buffer;

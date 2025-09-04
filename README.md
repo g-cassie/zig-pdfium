@@ -1,3 +1,7 @@
+# IMPORTANT
+The library is currently working with zig 0.15.1.  On zig 0.15.1, you must add
+`use_llvm = true` when importing this library. Otherwise you will get a crash
+about undefined symbols.
 
 # Getting pdfium
 To use zig-pdfium you will need a prebuilt binary of the pdfium library from 
