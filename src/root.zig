@@ -391,7 +391,10 @@ comptime {
 }
 
 pub const Bitmap = opaque {
-    pub const ARGBColor = packed struct(c_ulong) { _padding: u32 = 0, a: u8, r: u8, g: u8, b: u8 };
+    pub const ARGBColor = if (@sizeOf(c_ulong) == 8)
+        packed struct(c_ulong) { _padding: u32 = 0, a: u8, r: u8, g: u8, b: u8 }
+    else
+        packed struct(c_ulong) { a: u8, r: u8, g: u8, b: u8 };
     pub fn initEx(width: c_int, height: c_int, format: BitmapFormat, buffer: []u8, stride: c_int) !*Bitmap {
         assertLoaded();
         const fpdf_bitmap = FPDFBitmap_CreateEx(width, height, @intFromEnum(format), buffer.ptr, stride);
