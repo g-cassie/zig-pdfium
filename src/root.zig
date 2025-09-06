@@ -986,7 +986,10 @@ pub fn importPagesByIndex(
         @intCast(dest_index),
     );
     if (success == 0) {
-        log.err("FPDF_ImportPagesByIndex failed. According to pdfium docs this means one of the page_indices was invalid: {d}", .{src_indices});
+        log.err(
+            \\FPDF_ImportPagesByIndex failed. According to pdfium docs this means one 
+            \\of the page_indices was invalid: {any}
+        , .{src_indices});
         return error.InvalidIndex;
     }
 }
