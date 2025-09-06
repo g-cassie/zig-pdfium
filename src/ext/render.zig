@@ -36,25 +36,18 @@ test "renderPage" {
     const page = test_pdf.loadPage(0) catch return;
     defer page.deinit();
 
-    const width = @as(usize, @intFromFloat(@round(page.getWidth() * scale)));
-    const height = @as(usize, @intFromFloat(@round(page.getHeight() * scale)));
     const buffer = try renderPage(testing.allocator, page, .bgra, .{}, scale);
     defer testing.allocator.free(buffer);
 
-    var image = try zigimg.ImageUnmanaged.fromRawPixelsOwned(width, height, buffer, .bgra32);
-
-    // Convert from BGRA to RGBA
-    const rgba_pixels = try zigimg.PixelFormatConverter.convert(testing.allocator, &image.pixels, .rgba32);
-    defer rgba_pixels.deinit(testing.allocator);
-
-    var rgba_image = zigimg.ImageUnmanaged{
-        .width = width,
-        .height = height,
-        .pixels = rgba_pixels,
-    };
+    const width = @as(usize, @intFromFloat(@round(page.getWidth() * scale)));
+    const height = @as(usize, @intFromFloat(@round(page.getHeight() * scale)));
+    var image = try zigimg.Image.fromRawPixels(testing.allocator, width, height, buffer, .bgra32);
+    defer image.deinit(testing.allocator);
+    try image.convert(testing.allocator, .rgba32);
 
     const generated_path = "zig-out/tmp_test_pg0.png";
-    try rgba_image.writeToFilePath(testing.allocator, generated_path, .{ .png = .{} });
+    var write_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
+    try image.writeToFilePath(testing.allocator, generated_path, &write_buffer, .{ .png = .{} });
 
     // Read both files into memory
     const expected = try std.fs.cwd().readFileAlloc(testing.allocator, "test/test_pg0.png", std.math.maxInt(usize));
