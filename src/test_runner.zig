@@ -34,17 +34,20 @@ pub fn main() !void {
     var skip: usize = 0;
     var leak: usize = 0;
 
-    var failed_tests = std.ArrayList([]const u8).init(allocator);
-    defer failed_tests.deinit();
+    var failed_tests = std.ArrayListUnmanaged([]const u8){};
+    defer failed_tests.deinit(allocator);
 
-    const printer = Printer.init();
-    printer.fmt("\r\x1b[0K", .{}); // beginning of line and clear to end of line
+    var buf: [1024]u8 = undefined;
+    var out = std.fs.File.stderr().writer(&buf);
+    var w = &out.interface;
+    try w.writeAll("\r\x1b[0K"); // beginning of line and clear to end of line
+    defer w.flush() catch {};
 
     for (builtin.test_functions) |t| {
         if (isSetup(t)) {
             current_test = friendlyName(t.name);
             t.func() catch |err| {
-                printer.status(.fail, "\nsetup \"{s}\" failed: {}\n", .{ t.name, err });
+                log(w, .fail, "\nsetup \"{s}\" failed: {}\n", .{ t.name, err });
                 return err;
             };
         }
@@ -79,7 +82,7 @@ pub fn main() !void {
 
         if (std.testing.allocator_instance.deinit() == .leak) {
             leak += 1;
-            printer.status(.fail, "\n{s}\n\"{s}\" - Memory Leak\n{s}\n", .{ BORDER, friendly_name, BORDER });
+            log(w, .fail, "\n{s}\n\"{s}\" - Memory Leak\n{s}\n", .{ BORDER, friendly_name, BORDER });
         }
 
         if (result) |_| {
@@ -92,8 +95,8 @@ pub fn main() !void {
             else => {
                 status = .fail;
                 fail += 1;
-                failed_tests.append(friendly_name) catch @panic("OOM");
-                printer.status(.fail, "\n{s}\n\"{s}\" - {s}\n{s}\n", .{ BORDER, friendly_name, @errorName(err), BORDER });
+                failed_tests.append(allocator, friendly_name) catch @panic("OOM");
+                log(w, .fail, "\n{s}\n\"{s}\" - {s}\n{s}\n", .{ BORDER, friendly_name, @errorName(err), BORDER });
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
@@ -105,9 +108,9 @@ pub fn main() !void {
 
         if (env.verbose) {
             const ms = @as(f64, @floatFromInt(ns_taken)) / 1_000_000.0;
-            printer.status(status, "{s} ({d:.2}ms)\n", .{ friendly_name, ms });
+            log(w, status, "{s} ({d:.2}ms)\n", .{ friendly_name, ms });
         } else {
-            printer.status(status, ".", .{});
+            try w.print(".", .{});
         }
     }
 
@@ -115,7 +118,7 @@ pub fn main() !void {
         if (isTeardown(t)) {
             current_test = friendlyName(t.name);
             t.func() catch |err| {
-                printer.status(.fail, "\nteardown \"{s}\" failed: {}\n", .{ t.name, err });
+                log(w, .fail, "\n{s}\n\"{s}\" - {s}\n{s}\n", .{ BORDER, t.name, @errorName(err), BORDER });
                 return err;
             };
         }
@@ -123,24 +126,24 @@ pub fn main() !void {
 
     const total_tests = pass + fail;
     const status = if (fail == 0) Status.pass else Status.fail;
-    printer.status(status, "\n{d} of {d} test{s} passed\n", .{ pass, total_tests, if (total_tests != 1) "s" else "" });
+    log(w, status, "\r{d} of {d} test{s} passed\n", .{ pass, total_tests, if (total_tests != 1) "s" else "" });
     if (skip > 0) {
-        printer.status(.skip, "{d} test{s} skipped\n", .{ skip, if (skip != 1) "s" else "" });
+        log(w, .skip, "{d} test{s} skipped\n", .{ skip, if (skip != 1) "s" else "" });
     }
     if (leak > 0) {
-        printer.status(.fail, "{d} test{s} leaked\n", .{ leak, if (leak != 1) "s" else "" });
+        log(w, .fail, "{d} test{s} leaked\n", .{ leak, if (leak != 1) "s" else "" });
     }
-    printer.fmt("\n", .{});
-    try slowest.display(printer);
+    try w.print("\n", .{});
+    try slowest.display(w);
 
     if (failed_tests.items.len > 0) {
-        printer.status(.fail, "\nFailed tests:\n", .{});
+        log(w, .fail, "\nFailed tests:\n", .{});
         for (failed_tests.items) |test_name| {
-            printer.status(.fail, "  {s}\n", .{test_name});
+            log(w, .fail, "  {s}\n", .{test_name});
         }
     }
 
-    printer.fmt("\n", .{});
+    try w.print("\n", .{});
     std.posix.exit(if (fail == 0) 0 else 1);
 }
 
@@ -155,39 +158,24 @@ fn friendlyName(name: []const u8) []const u8 {
     return name;
 }
 
-const Printer = struct {
-    out: std.fs.File.Writer,
-
-    fn init() Printer {
-        return .{
-            .out = std.io.getStdErr().writer(),
-        };
-    }
-
-    fn fmt(self: Printer, comptime format: []const u8, args: anytype) void {
-        std.fmt.format(self.out, format, args) catch unreachable;
-    }
-
-    fn status(self: Printer, s: Status, comptime format: []const u8, args: anytype) void {
-        const color = switch (s) {
-            .pass => "\x1b[32m",
-            .fail => "\x1b[31m",
-            .skip => "\x1b[33m",
-            else => "",
-        };
-        const out = self.out;
-        out.writeAll(color) catch @panic("writeAll failed?!");
-        std.fmt.format(out, format, args) catch @panic("std.fmt.format failed?!");
-        self.fmt("\x1b[0m", .{});
-    }
-};
-
 const Status = enum {
     pass,
     fail,
     skip,
     text,
 };
+fn log(w: *std.io.Writer, s: Status, comptime fmt: []const u8, args: anytype) void {
+    const color = switch (s) {
+        .pass => "\x1b[32m",
+        .fail => "\x1b[31m",
+        .skip => "\x1b[33m",
+        .text => "",
+    };
+    w.writeAll(color) catch @panic("failed to write color");
+    w.print(fmt, args) catch @panic("failed to print");
+    w.writeAll("\x1b[0m") catch @panic("failed to write reset");
+    w.flush() catch @panic("failed to flush");
+}
 
 const SlowTracker = struct {
     const SlowestQueue = std.PriorityDequeue(TestInfo, void, compareTiming);
@@ -248,13 +236,13 @@ const SlowTracker = struct {
         return ns;
     }
 
-    fn display(self: *SlowTracker, printer: Printer) !void {
+    fn display(self: *SlowTracker, w: *std.io.Writer) !void {
         var slowest = self.slowest;
         const count = slowest.count();
-        printer.fmt("Slowest {d} test{s}: \n", .{ count, if (count != 1) "s" else "" });
+        try w.print("Slowest {d} test{s}: \n", .{ count, if (count != 1) "s" else "" });
         while (slowest.removeMinOrNull()) |info| {
             const ms = @as(f64, @floatFromInt(info.ns)) / 1_000_000.0;
-            printer.fmt("  {d:.2}ms\t{s}\n", .{ ms, info.name });
+            try w.print("  {d:.2}ms\t{s}\n", .{ ms, info.name });
         }
     }
 

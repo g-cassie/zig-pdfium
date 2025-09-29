@@ -9,7 +9,7 @@ const FileWriteWrapper = struct {
     file: std.fs.File,
 };
 
-fn writeBlock(self: *lib.FileWrite, data: [*c]const u8, size: c_long) callconv(.C) c_int {
+fn writeBlock(self: *lib.FileWrite, data: [*c]const u8, size: c_long) callconv(.c) c_int {
     const wrapper: *FileWriteWrapper = @fieldParentPtr("write", self);
     const file = wrapper.file;
     file.writeAll(data[0..@intCast(size)]) catch |err| {

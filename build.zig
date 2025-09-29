@@ -44,8 +44,7 @@ pub fn build(b: *std.Build) void {
     });
 
     // zigimg is used to verify outputs during testing
-    {
-        const dep_zigimg = b.dependency("zigimg", .{});
+    if (b.lazyDependency("zigimg", .{})) |dep_zigimg| {
         lib_mod_test.addImport("zigimg", dep_zigimg.module("zigimg"));
     }
 
@@ -56,6 +55,7 @@ pub fn build(b: *std.Build) void {
         .name = "zig_pdfium",
         .root_module = lib_mod,
     });
+    lib.linkLibC();
     b.installArtifact(lib);
 
     const lib_unit_tests = b.addTest(.{
