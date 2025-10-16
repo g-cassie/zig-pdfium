@@ -544,13 +544,17 @@ pub const TextPage = opaque {
                 break :b @intCast(x);
             } else {
                 const total_chars = try self.countChars();
+                if (start_index > total_chars) {
+                    return error.IndexOutOfRange;
+                }
                 break :b @intCast(total_chars - start_index);
             }
         };
-        if (char_count < 0) return error.Failed;
+        if (char_count < 0) unreachable;
         if (char_count == 0) {
             return std.mem.concatWithSentinel(allocator, u16, &.{}, 0);
         }
+
         // Allocate buffer for char_count + 1 (for terminator)
         const buf_len: usize = @intCast(char_count + 1);
         const buffer = try allocator.alloc(u16, buf_len);
@@ -564,11 +568,21 @@ pub const TextPage = opaque {
             @ptrCast(buffer.ptr),
         ));
 
+        // It seems like there are circumstances where FPDFText_GetText will write less than the
+        // number of characters returend by `FPDFText_CountChars`.  This seems to occur when
+        // there are sketchy characters that render as boxes with a typical PDF viewer.  If you
+        // shorten the buffer the length returned by FPDFText_GetText, everything seems to work
+        // fine (the sketchy characters are still sketchy). If you do not shorten it you will
+        // get corruption from the undefined characters at the end of the buffer.
         if (copied != buffer.len) {
-            log.err("FPDFText_GetText wrote {d} characters but we expected {d}", .{ copied, buffer.len });
-            return error.Failed;
+            log.debug("FPDFText_GetText wrote {d} characters but it expected {d}", .{
+                copied,
+                buffer.len,
+            });
         }
-        return buffer[0 .. buffer.len - 1 :0];
+
+        // Shorten to a safe length
+        return buffer[0 .. @min(buffer.len, copied) - 1 :0];
     }
 
     /// Start a search for text on this page.
