@@ -557,7 +557,7 @@ pub const TextPage = opaque {
 
         // Allocate buffer for char_count + 1 (for terminator)
         const buf_len: usize = @intCast(char_count + 1);
-        const buffer = try allocator.alloc(u16, buf_len);
+        var buffer = try allocator.alloc(u16, buf_len);
         errdefer allocator.free(buffer);
 
         // Call FPDFText_GetText
@@ -574,15 +574,17 @@ pub const TextPage = opaque {
         // shorten the buffer the length returned by FPDFText_GetText, everything seems to work
         // fine (the sketchy characters are still sketchy). If you do not shorten it you will
         // get corruption from the undefined characters at the end of the buffer.
-        if (copied != buffer.len) {
+        const actual_len = @min(buffer.len, copied);
+        if (actual_len != buffer.len) {
             log.debug("FPDFText_GetText wrote {d} characters but it expected {d}", .{
                 copied,
                 buffer.len,
             });
+            buffer = try allocator.realloc(buffer, actual_len);
         }
 
-        // Shorten to a safe length
-        return buffer[0 .. @min(buffer.len, copied) - 1 :0];
+        assert(buffer.len == actual_len);
+        return buffer[0 .. buffer.len - 1 :0];
     }
 
     /// Start a search for text on this page.
