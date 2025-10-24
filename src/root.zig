@@ -55,6 +55,8 @@ pub var FPDFText_GetRect: *@TypeOf(c.FPDFText_GetRect) = undefined;
 pub var FPDFText_GetBoundedText: *@TypeOf(c.FPDFText_GetBoundedText) = undefined;
 pub var FPDFText_GetText: *@TypeOf(c.FPDFText_GetText) = undefined;
 pub var FPDFText_CountChars: *@TypeOf(c.FPDFText_CountChars) = undefined;
+pub var FPDFText_GetCharBox: *@TypeOf(c.FPDFText_GetCharBox) = undefined;
+pub var FPDFText_GetUnicode: *@TypeOf(c.FPDFText_GetUnicode) = undefined;
 
 // FPDFText_Find* functions
 pub var FPDFText_FindStart: *@TypeOf(c.FPDFText_FindStart) = undefined;
@@ -131,6 +133,8 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFText_GetBoundedText = c_pdfium.?.lookup(@TypeOf(FPDFText_GetBoundedText), "FPDFText_GetBoundedText").?;
     FPDFText_GetText = c_pdfium.?.lookup(@TypeOf(FPDFText_GetText), "FPDFText_GetText").?;
     FPDFText_CountChars = c_pdfium.?.lookup(@TypeOf(FPDFText_CountChars), "FPDFText_CountChars").?;
+    FPDFText_GetCharBox = c_pdfium.?.lookup(@TypeOf(FPDFText_GetCharBox), "FPDFText_GetCharBox").?;
+    FPDFText_GetUnicode = c_pdfium.?.lookup(@TypeOf(FPDFText_GetUnicode), "FPDFText_GetUnicode").?;
 
     // FPDFText_Find* functions
     FPDFText_FindStart = c_pdfium.?.lookup(@TypeOf(FPDFText_FindStart), "FPDFText_FindStart").?;
@@ -528,6 +532,33 @@ pub const TextPage = opaque {
     pub fn countChars(self: *TextPage) !usize {
         const result = FPDFText_CountChars(@ptrCast(self));
         if (result < 0) {
+            return error.Failed;
+        }
+        return @intCast(result);
+    }
+
+    pub fn getCharBox(self: *TextPage, index: usize) !struct { left: f64, right: f64, bottom: f64, top: f64 } {
+        var left: f64 = 0;
+        var right: f64 = 0;
+        var bottom: f64 = 0;
+        var top: f64 = 0;
+
+        const success = FPDFText_GetCharBox(@ptrCast(self), @intCast(index), &left, &right, &bottom, &top);
+        if (success != 1) {
+            return error.Failed;
+        }
+
+        return .{
+            .left = left,
+            .right = right,
+            .bottom = bottom,
+            .top = top,
+        };
+    }
+
+    pub fn getUnicode(self: *TextPage, index: usize) !u32 {
+        const result = FPDFText_GetUnicode(@ptrCast(self), @intCast(index));
+        if (result == 0) {
             return error.Failed;
         }
         return @intCast(result);
