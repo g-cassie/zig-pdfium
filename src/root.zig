@@ -90,6 +90,31 @@ pub var FPDFBookmark_GetAction: *@TypeOf(c.FPDFBookmark_GetAction) = undefined;
 pub var FPDF_SaveAsCopy: *@TypeOf(c.FPDF_SaveAsCopy) = undefined;
 pub var FPDF_ImportPagesByIndex: *@TypeOf(c.FPDF_ImportPagesByIndex) = undefined;
 
+// fpdf_edit.h - Page object APIs
+pub var FPDFPage_CountObjects: *@TypeOf(c.FPDFPage_CountObjects) = undefined;
+pub var FPDFPage_GetObject: *@TypeOf(c.FPDFPage_GetObject) = undefined;
+pub var FPDFPageObj_GetType: *@TypeOf(c.FPDFPageObj_GetType) = undefined;
+pub var FPDFPageObj_GetBounds: *@TypeOf(c.FPDFPageObj_GetBounds) = undefined;
+pub var FPDFPageObj_GetStrokeWidth: *@TypeOf(c.FPDFPageObj_GetStrokeWidth) = undefined;
+pub var FPDFPath_CountSegments: *@TypeOf(c.FPDFPath_CountSegments) = undefined;
+pub var FPDFPath_GetPathSegment: *@TypeOf(c.FPDFPath_GetPathSegment) = undefined;
+pub var FPDFPathSegment_GetType: *@TypeOf(c.FPDFPathSegment_GetType) = undefined;
+pub var FPDFPathSegment_GetPoint: *@TypeOf(c.FPDFPathSegment_GetPoint) = undefined;
+pub var FPDFPathSegment_GetClose: *@TypeOf(c.FPDFPathSegment_GetClose) = undefined;
+pub var FPDFPath_GetDrawMode: *@TypeOf(c.FPDFPath_GetDrawMode) = undefined;
+
+// Page object type constants
+pub const FPDF_PAGEOBJ_TEXT = c.FPDF_PAGEOBJ_TEXT;
+pub const FPDF_PAGEOBJ_PATH = c.FPDF_PAGEOBJ_PATH;
+pub const FPDF_PAGEOBJ_IMAGE = c.FPDF_PAGEOBJ_IMAGE;
+pub const FPDF_PAGEOBJ_SHADING = c.FPDF_PAGEOBJ_SHADING;
+pub const FPDF_PAGEOBJ_FORM = c.FPDF_PAGEOBJ_FORM;
+
+// Path segment type constants
+pub const FPDF_SEGMENT_LINETO = c.FPDF_SEGMENT_LINETO;
+pub const FPDF_SEGMENT_BEZIERTO = c.FPDF_SEGMENT_BEZIERTO;
+pub const FPDF_SEGMENT_MOVETO = c.FPDF_SEGMENT_MOVETO;
+
 pub fn bindPdfium(path: []const u8) !void {
     if (IS_BOUND) {
         log.warn("PDFium already bound", .{});
@@ -168,6 +193,19 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFBookmark_GetAction = c_pdfium.?.lookup(@TypeOf(FPDFBookmark_GetAction), "FPDFBookmark_GetAction").?;
     FPDF_SaveAsCopy = c_pdfium.?.lookup(@TypeOf(FPDF_SaveAsCopy), "FPDF_SaveAsCopy").?;
     FPDF_ImportPagesByIndex = c_pdfium.?.lookup(@TypeOf(FPDF_ImportPagesByIndex), "FPDF_ImportPagesByIndex").?;
+
+    // fpdf_edit.h - Page object APIs
+    FPDFPage_CountObjects = c_pdfium.?.lookup(@TypeOf(FPDFPage_CountObjects), "FPDFPage_CountObjects").?;
+    FPDFPage_GetObject = c_pdfium.?.lookup(@TypeOf(FPDFPage_GetObject), "FPDFPage_GetObject").?;
+    FPDFPageObj_GetType = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetType), "FPDFPageObj_GetType").?;
+    FPDFPageObj_GetBounds = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetBounds), "FPDFPageObj_GetBounds").?;
+    FPDFPageObj_GetStrokeWidth = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetStrokeWidth), "FPDFPageObj_GetStrokeWidth").?;
+    FPDFPath_CountSegments = c_pdfium.?.lookup(@TypeOf(FPDFPath_CountSegments), "FPDFPath_CountSegments").?;
+    FPDFPath_GetPathSegment = c_pdfium.?.lookup(@TypeOf(FPDFPath_GetPathSegment), "FPDFPath_GetPathSegment").?;
+    FPDFPathSegment_GetType = c_pdfium.?.lookup(@TypeOf(FPDFPathSegment_GetType), "FPDFPathSegment_GetType").?;
+    FPDFPathSegment_GetPoint = c_pdfium.?.lookup(@TypeOf(FPDFPathSegment_GetPoint), "FPDFPathSegment_GetPoint").?;
+    FPDFPathSegment_GetClose = c_pdfium.?.lookup(@TypeOf(FPDFPathSegment_GetClose), "FPDFPathSegment_GetClose").?;
+    FPDFPath_GetDrawMode = c_pdfium.?.lookup(@TypeOf(FPDFPath_GetDrawMode), "FPDFPath_GetDrawMode").?;
 }
 
 pub const Error = error{
