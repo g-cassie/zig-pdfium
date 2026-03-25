@@ -102,6 +102,8 @@ pub var FPDFPathSegment_GetType: *@TypeOf(c.FPDFPathSegment_GetType) = undefined
 pub var FPDFPathSegment_GetPoint: *@TypeOf(c.FPDFPathSegment_GetPoint) = undefined;
 pub var FPDFPathSegment_GetClose: *@TypeOf(c.FPDFPathSegment_GetClose) = undefined;
 pub var FPDFPath_GetDrawMode: *@TypeOf(c.FPDFPath_GetDrawMode) = undefined;
+pub var FPDFFormObj_CountObjects: *@TypeOf(c.FPDFFormObj_CountObjects) = undefined;
+pub var FPDFFormObj_GetObject: *@TypeOf(c.FPDFFormObj_GetObject) = undefined;
 
 // Page object type constants
 pub const FPDF_PAGEOBJ_TEXT = c.FPDF_PAGEOBJ_TEXT;
@@ -206,6 +208,8 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFPathSegment_GetPoint = c_pdfium.?.lookup(@TypeOf(FPDFPathSegment_GetPoint), "FPDFPathSegment_GetPoint").?;
     FPDFPathSegment_GetClose = c_pdfium.?.lookup(@TypeOf(FPDFPathSegment_GetClose), "FPDFPathSegment_GetClose").?;
     FPDFPath_GetDrawMode = c_pdfium.?.lookup(@TypeOf(FPDFPath_GetDrawMode), "FPDFPath_GetDrawMode").?;
+    FPDFFormObj_CountObjects = c_pdfium.?.lookup(@TypeOf(FPDFFormObj_CountObjects), "FPDFFormObj_CountObjects").?;
+    FPDFFormObj_GetObject = c_pdfium.?.lookup(@TypeOf(FPDFFormObj_GetObject), "FPDFFormObj_GetObject").?;
 }
 
 pub const Error = error{
