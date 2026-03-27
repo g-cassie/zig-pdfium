@@ -77,6 +77,7 @@ pub var FPDFLink_GetDest: *@TypeOf(c.FPDFLink_GetDest) = undefined;
 pub var FPDFLink_GetAction: *@TypeOf(c.FPDFLink_GetAction) = undefined;
 pub var FPDFLink_Enumerate: *@TypeOf(c.FPDFLink_Enumerate) = undefined;
 pub var FPDFLink_GetAnnotRect: *@TypeOf(c.FPDFLink_GetAnnotRect) = undefined;
+pub var FPDFLink_GetLinkAtPoint: *@TypeOf(c.FPDFLink_GetLinkAtPoint) = undefined;
 pub var FPDFDest_GetDestPageIndex: *@TypeOf(c.FPDFDest_GetDestPageIndex) = undefined;
 pub var FPDFAction_GetDest: *@TypeOf(c.FPDFAction_GetDest) = undefined;
 
@@ -132,6 +133,15 @@ pub var FPDF_StructElement_GetAttributeCount: *@TypeOf(c.FPDF_StructElement_GetA
 pub var FPDF_StructElement_GetAttributeAtIndex: *@TypeOf(c.FPDF_StructElement_GetAttributeAtIndex) = undefined;
 pub var FPDF_StructElement_Attr_GetValue: *@TypeOf(c.FPDF_StructElement_Attr_GetValue) = undefined;
 pub var FPDF_StructElement_Attr_GetNumberValue: *@TypeOf(c.FPDF_StructElement_Attr_GetNumberValue) = undefined;
+pub var FPDF_StructElement_GetAltText: *@TypeOf(c.FPDF_StructElement_GetAltText) = undefined;
+pub var FPDF_StructElement_GetMarkedContentIdCount: *@TypeOf(c.FPDF_StructElement_GetMarkedContentIdCount) = undefined;
+pub var FPDF_StructElement_GetMarkedContentIdAtIndex: *@TypeOf(c.FPDF_StructElement_GetMarkedContentIdAtIndex) = undefined;
+
+// fpdf_text.h - Text object mapping
+pub var FPDFText_GetTextObject: *@TypeOf(c.FPDFText_GetTextObject) = undefined;
+
+// fpdf_edit.h - Page object marked content
+pub var FPDFPageObj_GetMarkedContentID: *@TypeOf(c.FPDFPageObj_GetMarkedContentID) = undefined;
 
 pub fn bindPdfium(path: []const u8) !void {
     if (IS_BOUND) {
@@ -198,6 +208,7 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFLink_GetAction = c_pdfium.?.lookup(@TypeOf(FPDFLink_GetAction), "FPDFLink_GetAction").?;
     FPDFLink_Enumerate = c_pdfium.?.lookup(@TypeOf(FPDFLink_Enumerate), "FPDFLink_Enumerate").?;
     FPDFLink_GetAnnotRect = c_pdfium.?.lookup(@TypeOf(FPDFLink_GetAnnotRect), "FPDFLink_GetAnnotRect").?;
+    FPDFLink_GetLinkAtPoint = c_pdfium.?.lookup(@TypeOf(FPDFLink_GetLinkAtPoint), "FPDFLink_GetLinkAtPoint").?;
     FPDFDest_GetDestPageIndex = c_pdfium.?.lookup(@TypeOf(FPDFDest_GetDestPageIndex), "FPDFDest_GetDestPageIndex").?;
     FPDFAction_GetDest = c_pdfium.?.lookup(@TypeOf(FPDFAction_GetDest), "FPDFAction_GetDest").?;
 
@@ -241,6 +252,11 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDF_StructElement_GetAttributeAtIndex = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_GetAttributeAtIndex), "FPDF_StructElement_GetAttributeAtIndex").?;
     FPDF_StructElement_Attr_GetValue = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_Attr_GetValue), "FPDF_StructElement_Attr_GetValue").?;
     FPDF_StructElement_Attr_GetNumberValue = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_Attr_GetNumberValue), "FPDF_StructElement_Attr_GetNumberValue").?;
+    FPDF_StructElement_GetAltText = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_GetAltText), "FPDF_StructElement_GetAltText").?;
+    FPDF_StructElement_GetMarkedContentIdCount = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_GetMarkedContentIdCount), "FPDF_StructElement_GetMarkedContentIdCount").?;
+    FPDF_StructElement_GetMarkedContentIdAtIndex = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_GetMarkedContentIdAtIndex), "FPDF_StructElement_GetMarkedContentIdAtIndex").?;
+    FPDFText_GetTextObject = c_pdfium.?.lookup(@TypeOf(FPDFText_GetTextObject), "FPDFText_GetTextObject").?;
+    FPDFPageObj_GetMarkedContentID = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetMarkedContentID), "FPDFPageObj_GetMarkedContentID").?;
 }
 
 pub const Error = error{
@@ -405,6 +421,13 @@ pub const Page = opaque {
             return @ptrCast(annot);
         }
         return error.GetAnnotationFailed;
+    }
+
+    pub fn getLinkAtPoint(self: *Page, x: f64, y: f64) ?*Link {
+        if (FPDFLink_GetLinkAtPoint(@ptrCast(self), x, y)) |link| {
+            return @ptrCast(link);
+        }
+        return null;
     }
 
     pub fn linkIterator(self: *Page) LinkIterator {
