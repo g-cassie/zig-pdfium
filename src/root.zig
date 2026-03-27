@@ -12,6 +12,7 @@ const c = @cImport({
     @cInclude("fpdf_save.h");
     @cInclude("fpdf_ppo.h");
     @cInclude("fpdf_edit.h");
+    @cInclude("fpdf_structtree.h");
 });
 const testing = std.testing;
 const assert = std.debug.assert;
@@ -117,6 +118,21 @@ pub const FPDF_SEGMENT_LINETO = c.FPDF_SEGMENT_LINETO;
 pub const FPDF_SEGMENT_BEZIERTO = c.FPDF_SEGMENT_BEZIERTO;
 pub const FPDF_SEGMENT_MOVETO = c.FPDF_SEGMENT_MOVETO;
 
+// fpdf_structtree.h - Structure tree APIs
+pub var FPDF_StructTree_GetForPage: *@TypeOf(c.FPDF_StructTree_GetForPage) = undefined;
+pub var FPDF_StructTree_Close: *@TypeOf(c.FPDF_StructTree_Close) = undefined;
+pub var FPDF_StructTree_CountChildren: *@TypeOf(c.FPDF_StructTree_CountChildren) = undefined;
+pub var FPDF_StructTree_GetChildAtIndex: *@TypeOf(c.FPDF_StructTree_GetChildAtIndex) = undefined;
+pub var FPDF_StructElement_GetType: *@TypeOf(c.FPDF_StructElement_GetType) = undefined;
+pub var FPDF_StructElement_CountChildren: *@TypeOf(c.FPDF_StructElement_CountChildren) = undefined;
+pub var FPDF_StructElement_GetChildAtIndex: *@TypeOf(c.FPDF_StructElement_GetChildAtIndex) = undefined;
+pub var FPDF_StructElement_GetMarkedContentID: *@TypeOf(c.FPDF_StructElement_GetMarkedContentID) = undefined;
+pub var FPDF_StructElement_GetChildMarkedContentID: *@TypeOf(c.FPDF_StructElement_GetChildMarkedContentID) = undefined;
+pub var FPDF_StructElement_GetAttributeCount: *@TypeOf(c.FPDF_StructElement_GetAttributeCount) = undefined;
+pub var FPDF_StructElement_GetAttributeAtIndex: *@TypeOf(c.FPDF_StructElement_GetAttributeAtIndex) = undefined;
+pub var FPDF_StructElement_Attr_GetValue: *@TypeOf(c.FPDF_StructElement_Attr_GetValue) = undefined;
+pub var FPDF_StructElement_Attr_GetNumberValue: *@TypeOf(c.FPDF_StructElement_Attr_GetNumberValue) = undefined;
+
 pub fn bindPdfium(path: []const u8) !void {
     if (IS_BOUND) {
         log.warn("PDFium already bound", .{});
@@ -210,6 +226,21 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFPath_GetDrawMode = c_pdfium.?.lookup(@TypeOf(FPDFPath_GetDrawMode), "FPDFPath_GetDrawMode").?;
     FPDFFormObj_CountObjects = c_pdfium.?.lookup(@TypeOf(FPDFFormObj_CountObjects), "FPDFFormObj_CountObjects").?;
     FPDFFormObj_GetObject = c_pdfium.?.lookup(@TypeOf(FPDFFormObj_GetObject), "FPDFFormObj_GetObject").?;
+
+    // fpdf_structtree.h
+    FPDF_StructTree_GetForPage = c_pdfium.?.lookup(@TypeOf(FPDF_StructTree_GetForPage), "FPDF_StructTree_GetForPage").?;
+    FPDF_StructTree_Close = c_pdfium.?.lookup(@TypeOf(FPDF_StructTree_Close), "FPDF_StructTree_Close").?;
+    FPDF_StructTree_CountChildren = c_pdfium.?.lookup(@TypeOf(FPDF_StructTree_CountChildren), "FPDF_StructTree_CountChildren").?;
+    FPDF_StructTree_GetChildAtIndex = c_pdfium.?.lookup(@TypeOf(FPDF_StructTree_GetChildAtIndex), "FPDF_StructTree_GetChildAtIndex").?;
+    FPDF_StructElement_GetType = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_GetType), "FPDF_StructElement_GetType").?;
+    FPDF_StructElement_CountChildren = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_CountChildren), "FPDF_StructElement_CountChildren").?;
+    FPDF_StructElement_GetChildAtIndex = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_GetChildAtIndex), "FPDF_StructElement_GetChildAtIndex").?;
+    FPDF_StructElement_GetMarkedContentID = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_GetMarkedContentID), "FPDF_StructElement_GetMarkedContentID").?;
+    FPDF_StructElement_GetChildMarkedContentID = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_GetChildMarkedContentID), "FPDF_StructElement_GetChildMarkedContentID").?;
+    FPDF_StructElement_GetAttributeCount = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_GetAttributeCount), "FPDF_StructElement_GetAttributeCount").?;
+    FPDF_StructElement_GetAttributeAtIndex = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_GetAttributeAtIndex), "FPDF_StructElement_GetAttributeAtIndex").?;
+    FPDF_StructElement_Attr_GetValue = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_Attr_GetValue), "FPDF_StructElement_Attr_GetValue").?;
+    FPDF_StructElement_Attr_GetNumberValue = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_Attr_GetNumberValue), "FPDF_StructElement_Attr_GetNumberValue").?;
 }
 
 pub const Error = error{
