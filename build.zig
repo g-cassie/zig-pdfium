@@ -32,6 +32,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     lib_mod.addIncludePath(b.path("include/7215"));
 
@@ -41,6 +42,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
 
     // zigimg is used to verify outputs during testing
@@ -55,14 +57,16 @@ pub fn build(b: *std.Build) void {
         .name = "zig_pdfium",
         .root_module = lib_mod,
     });
-    lib.linkLibC();
     b.installArtifact(lib);
 
     const lib_unit_tests = b.addTest(.{
         .root_module = lib_mod_test,
         .test_runner = .{ .path = b.path("src/test_runner.zig"), .mode = .simple },
+        // The self-hosted x86_64 backend (the Debug default) cannot resolve the
+        // pdfium symbols we bind via std.DynLib, producing "undefined symbol:
+        // FPDF_*" at link time. See https://github.com/ziglang/zig/issues/25151
+        .use_llvm = true,
     });
-    lib_unit_tests.linkLibC();
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const test_step = b.step("test", "Run unit tests");

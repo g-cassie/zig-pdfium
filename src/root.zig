@@ -849,7 +849,7 @@ test "getText" {
     try testing.expect(utf8_text.len > 0);
 
     // Should contain "Introduction" somewhere in the text
-    try testing.expect(std.mem.indexOf(u8, utf8_text, "Introduction") != null);
+    try testing.expect(std.mem.find(u8, utf8_text, "Introduction") != null);
 
     // Test getting a specific range
     const partial_text = try text_page.getText(testing.allocator, 0, 20);
