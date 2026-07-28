@@ -20,11 +20,12 @@ const panic = std.debug.panic;
 
 pub const render = @import("ext/render.zig");
 pub const save = @import("ext/save.zig");
+pub const DynLib = @import("dynlib.zig").DynLib;
 
 var DID_INIT: bool = false;
 var IS_BOUND: bool = false;
 
-pub var c_pdfium: ?std.DynLib = null;
+pub var c_pdfium: ?DynLib = null;
 pub const FPDF_GRAYSCALE = c.FPDF_GRAYSCALE;
 pub const FPDFBitmap_BGRA = c.FPDFBitmap_BGRA;
 
@@ -149,7 +150,7 @@ pub fn bindPdfium(path: []const u8) !void {
         return;
     }
     defer IS_BOUND = true;
-    c_pdfium = try std.DynLib.open(path);
+    c_pdfium = try DynLib.open(path);
 
     // Top Level Methods
     FPDF_InitLibrary = c_pdfium.?.lookup(@TypeOf(FPDF_InitLibrary), "FPDF_InitLibrary").?;
