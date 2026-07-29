@@ -45,15 +45,16 @@ test "renderPage" {
     defer image.deinit(testing.allocator);
     try image.convert(testing.allocator, .rgba32);
 
+    const io = testing.io;
     const generated_path = "zig-out/tmp_test_pg0.png";
     var write_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-    try image.writeToFilePath(testing.allocator, generated_path, &write_buffer, .{ .png = .{} });
+    try image.writeToFilePath(testing.allocator, io, generated_path, &write_buffer, .{ .png = .{} });
 
     // Read both files into memory
-    const expected = try std.fs.cwd().readFileAlloc(testing.allocator, "test/test_pg0.png", std.math.maxInt(usize));
+    const expected = try std.Io.Dir.cwd().readFileAlloc(io, "test/test_pg0.png", testing.allocator, .unlimited);
     defer testing.allocator.free(expected);
 
-    const generated = try std.fs.cwd().readFileAlloc(testing.allocator, generated_path, std.math.maxInt(usize));
+    const generated = try std.Io.Dir.cwd().readFileAlloc(io, generated_path, testing.allocator, .unlimited);
     defer testing.allocator.free(generated);
 
     try testing.expectEqualSlices(u8, expected, generated);
