@@ -13,6 +13,9 @@ const c = @cImport({
     @cInclude("fpdf_ppo.h");
     @cInclude("fpdf_edit.h");
     @cInclude("fpdf_structtree.h");
+    // Also pulled in transitively by fpdf_annot.h, but the form-fill bindings
+    // depend on it directly.
+    @cInclude("fpdf_formfill.h");
 });
 const testing = std.testing;
 const assert = std.debug.assert;
@@ -24,6 +27,15 @@ pub const DynLib = @import("dynlib.zig").DynLib;
 
 var DID_INIT: bool = false;
 var IS_BOUND: bool = false;
+
+/// Whether the form-fill APIs below were all resolved by `bindPdfium`. Unlike
+/// every other binding they are looked up optionally, so a pdfium build that
+/// ships without them degrades to "no form rendering" instead of failing to
+/// start. Callers must not touch any `FORM_*`, `FPDF_FFLDraw`,
+/// `FPDFDOC_*FormFillEnvironment` or `FPDFAnnot_*FormField*` symbol when this
+/// is false — the wrappers in this file that can be reached without a
+/// `FormHandle` check it for you.
+pub var HAS_FORM_API: bool = false;
 
 pub var c_pdfium: ?DynLib = null;
 pub const FPDF_GRAYSCALE = c.FPDF_GRAYSCALE;
@@ -144,6 +156,38 @@ pub var FPDFText_GetTextObject: *@TypeOf(c.FPDFText_GetTextObject) = undefined;
 // fpdf_edit.h - Page object marked content
 pub var FPDFPageObj_GetMarkedContentID: *@TypeOf(c.FPDFPageObj_GetMarkedContentID) = undefined;
 
+// fpdf_formfill.h - Form fill environment.
+// Only valid when `HAS_FORM_API` is true.
+pub var FPDFDOC_InitFormFillEnvironment: *@TypeOf(c.FPDFDOC_InitFormFillEnvironment) = undefined;
+pub var FPDFDOC_ExitFormFillEnvironment: *@TypeOf(c.FPDFDOC_ExitFormFillEnvironment) = undefined;
+pub var FPDF_FFLDraw: *@TypeOf(c.FPDF_FFLDraw) = undefined;
+pub var FPDF_GetFormType: *@TypeOf(c.FPDF_GetFormType) = undefined;
+pub var FORM_OnAfterLoadPage: *@TypeOf(c.FORM_OnAfterLoadPage) = undefined;
+pub var FORM_OnBeforeClosePage: *@TypeOf(c.FORM_OnBeforeClosePage) = undefined;
+pub var FPDF_SetFormFieldHighlightColor: *@TypeOf(c.FPDF_SetFormFieldHighlightColor) = undefined;
+pub var FPDF_SetFormFieldHighlightAlpha: *@TypeOf(c.FPDF_SetFormFieldHighlightAlpha) = undefined;
+
+// fpdf_annot.h - Form field accessors. All take an FPDF_FORMHANDLE, so they
+// are equally gated on `HAS_FORM_API`.
+pub var FPDFAnnot_GetFormFieldType: *@TypeOf(c.FPDFAnnot_GetFormFieldType) = undefined;
+pub var FPDFAnnot_GetFormFieldName: *@TypeOf(c.FPDFAnnot_GetFormFieldName) = undefined;
+pub var FPDFAnnot_GetFormFieldAlternateName: *@TypeOf(c.FPDFAnnot_GetFormFieldAlternateName) = undefined;
+pub var FPDFAnnot_GetFormFieldValue: *@TypeOf(c.FPDFAnnot_GetFormFieldValue) = undefined;
+pub var FPDFAnnot_GetFormFieldFlags: *@TypeOf(c.FPDFAnnot_GetFormFieldFlags) = undefined;
+pub var FPDFAnnot_GetFormFieldExportValue: *@TypeOf(c.FPDFAnnot_GetFormFieldExportValue) = undefined;
+pub var FPDFAnnot_GetFormFieldAtPoint: *@TypeOf(c.FPDFAnnot_GetFormFieldAtPoint) = undefined;
+pub var FPDFAnnot_IsChecked: *@TypeOf(c.FPDFAnnot_IsChecked) = undefined;
+pub var FPDFAnnot_GetOptionCount: *@TypeOf(c.FPDFAnnot_GetOptionCount) = undefined;
+pub var FPDFAnnot_GetOptionLabel: *@TypeOf(c.FPDFAnnot_GetOptionLabel) = undefined;
+pub var FPDFAnnot_IsOptionSelected: *@TypeOf(c.FPDFAnnot_IsOptionSelected) = undefined;
+
+// fpdf_annot.h - Annotation flags. Not form-specific, but an "Experimental API"
+// like the block above, and its only caller today is the form-field walk (which
+// uses it to skip widgets pdfium won't draw), so it shares `HAS_FORM_API` rather
+// than introducing a second capability flag. Split it out if a non-form caller
+// appears.
+pub var FPDFAnnot_GetFlags: *@TypeOf(c.FPDFAnnot_GetFlags) = undefined;
+
 pub fn bindPdfium(path: []const u8) !void {
     if (IS_BOUND) {
         log.warn("PDFium already bound", .{});
@@ -258,6 +302,43 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDF_StructElement_GetMarkedContentIdAtIndex = c_pdfium.?.lookup(@TypeOf(FPDF_StructElement_GetMarkedContentIdAtIndex), "FPDF_StructElement_GetMarkedContentIdAtIndex").?;
     FPDFText_GetTextObject = c_pdfium.?.lookup(@TypeOf(FPDFText_GetTextObject), "FPDFText_GetTextObject").?;
     FPDFPageObj_GetMarkedContentID = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetMarkedContentID), "FPDFPageObj_GetMarkedContentID").?;
+
+    // fpdf_formfill.h + the FPDFAnnot_*FormField* accessors from fpdf_annot.h.
+    //
+    // Looked up optionally rather than with `.?`: these are the only bindings
+    // whose absence has a sensible fallback (render and extract without form
+    // fields), and every one of them is an "Experimental API" that a stripped
+    // or older build could plausibly omit. If any is missing we leave
+    // HAS_FORM_API false and no caller reaches the rest.
+    form: {
+        FPDFDOC_InitFormFillEnvironment = c_pdfium.?.lookup(@TypeOf(FPDFDOC_InitFormFillEnvironment), "FPDFDOC_InitFormFillEnvironment") orelse break :form;
+        FPDFDOC_ExitFormFillEnvironment = c_pdfium.?.lookup(@TypeOf(FPDFDOC_ExitFormFillEnvironment), "FPDFDOC_ExitFormFillEnvironment") orelse break :form;
+        FPDF_FFLDraw = c_pdfium.?.lookup(@TypeOf(FPDF_FFLDraw), "FPDF_FFLDraw") orelse break :form;
+        FPDF_GetFormType = c_pdfium.?.lookup(@TypeOf(FPDF_GetFormType), "FPDF_GetFormType") orelse break :form;
+        FORM_OnAfterLoadPage = c_pdfium.?.lookup(@TypeOf(FORM_OnAfterLoadPage), "FORM_OnAfterLoadPage") orelse break :form;
+        FORM_OnBeforeClosePage = c_pdfium.?.lookup(@TypeOf(FORM_OnBeforeClosePage), "FORM_OnBeforeClosePage") orelse break :form;
+        FPDF_SetFormFieldHighlightColor = c_pdfium.?.lookup(@TypeOf(FPDF_SetFormFieldHighlightColor), "FPDF_SetFormFieldHighlightColor") orelse break :form;
+        FPDF_SetFormFieldHighlightAlpha = c_pdfium.?.lookup(@TypeOf(FPDF_SetFormFieldHighlightAlpha), "FPDF_SetFormFieldHighlightAlpha") orelse break :form;
+
+        FPDFAnnot_GetFormFieldType = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetFormFieldType), "FPDFAnnot_GetFormFieldType") orelse break :form;
+        FPDFAnnot_GetFormFieldName = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetFormFieldName), "FPDFAnnot_GetFormFieldName") orelse break :form;
+        FPDFAnnot_GetFormFieldAlternateName = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetFormFieldAlternateName), "FPDFAnnot_GetFormFieldAlternateName") orelse break :form;
+        FPDFAnnot_GetFormFieldValue = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetFormFieldValue), "FPDFAnnot_GetFormFieldValue") orelse break :form;
+        FPDFAnnot_GetFormFieldFlags = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetFormFieldFlags), "FPDFAnnot_GetFormFieldFlags") orelse break :form;
+        FPDFAnnot_GetFormFieldExportValue = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetFormFieldExportValue), "FPDFAnnot_GetFormFieldExportValue") orelse break :form;
+        FPDFAnnot_GetFormFieldAtPoint = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetFormFieldAtPoint), "FPDFAnnot_GetFormFieldAtPoint") orelse break :form;
+        FPDFAnnot_IsChecked = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_IsChecked), "FPDFAnnot_IsChecked") orelse break :form;
+        FPDFAnnot_GetOptionCount = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetOptionCount), "FPDFAnnot_GetOptionCount") orelse break :form;
+        FPDFAnnot_GetOptionLabel = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetOptionLabel), "FPDFAnnot_GetOptionLabel") orelse break :form;
+        FPDFAnnot_IsOptionSelected = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_IsOptionSelected), "FPDFAnnot_IsOptionSelected") orelse break :form;
+
+        FPDFAnnot_GetFlags = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetFlags), "FPDFAnnot_GetFlags") orelse break :form;
+
+        HAS_FORM_API = true;
+    }
+    if (!HAS_FORM_API) {
+        log.warn("pdfium is missing the form-fill APIs; fillable form fields will not render or extract", .{});
+    }
 }
 
 pub const Error = error{
@@ -365,6 +446,91 @@ pub const Document = opaque {
             return getLastError();
         }
     }
+
+    /// What kind of interactive form, if any, this document has. Cheap: it is
+    /// an `/AcroForm` dictionary lookup, so it is the right thing to gate the
+    /// (much more expensive) `initFormFillEnv` on.
+    ///
+    /// Returns `.none` when the pdfium build has no form APIs.
+    pub fn getFormType(self: *Document) FormType {
+        if (!HAS_FORM_API) return .none;
+        return std.enums.fromInt(FormType, FPDF_GetFormType(@ptrCast(self))) orelse .none;
+    }
+
+    /// Create the form fill environment for this document. Required before any
+    /// `FormHandle` operation, including `Bitmap.drawFormFields`: widget
+    /// annotations are *not* drawn by `renderPage`, even with `.annot = true`.
+    ///
+    /// `info` must remain valid, at a stable address, until the returned
+    /// handle is closed with `FormHandle.deinit` — pdfium retains the pointer
+    /// (fpdf_formfill.h:1055). Store it somewhere that outlives the handle;
+    /// a local will not do.
+    ///
+    /// Returns null when the pdfium build has no form APIs, or when pdfium
+    /// declines to create the environment.
+    pub fn initFormFillEnv(self: *Document, info: *FormFillInfo) ?*FormHandle {
+        if (!HAS_FORM_API) return null;
+        if (FPDFDOC_InitFormFillEnvironment(@ptrCast(self), info)) |handle| {
+            return @ptrCast(handle);
+        }
+        return null;
+    }
+};
+
+pub const FormType = enum(c_int) {
+    none = c.FORMTYPE_NONE,
+    acro_form = c.FORMTYPE_ACRO_FORM,
+    xfa_full = c.FORMTYPE_XFA_FULL,
+    xfa_foreground = c.FORMTYPE_XFA_FOREGROUND,
+};
+
+/// translate-c's version of `FPDF_FORMFILLINFO`, re-exported rather than
+/// hand-rolled: it is a 40-plus member table of function pointers, and a
+/// silent ABI mismatch in it corrupts pdfium's callback dispatch.
+///
+/// This is a value type on purpose — the caller has to own the storage,
+/// see `Document.initFormFillEnv`.
+pub const FormFillInfo = c.FPDF_FORMFILLINFO;
+
+/// A zeroed version-1 `FormFillInfo`: no callbacks at all.
+///
+/// Every version-1 callback is documented "Implementation Required: No"
+/// except `FFI_GetCurrentPage`, which is only called when pdfium is built
+/// with V8/JavaScript. Version 1 (rather than 2) is correct for a build
+/// without XFA.
+pub fn defaultFormFillInfo() FormFillInfo {
+    var info = std.mem.zeroes(FormFillInfo);
+    info.version = 1;
+    return info;
+}
+
+/// A live form fill environment, from `Document.initFormFillEnv`. Must be
+/// closed with `deinit` *before* the document it came from is closed.
+pub const FormHandle = opaque {
+    pub fn deinit(self: *FormHandle) void {
+        FPDFDOC_ExitFormFillEnvironment(@ptrCast(self));
+    }
+
+    /// Set the tint `drawFormFields` paints over form fields, and switch that
+    /// tint *on*: pdfium draws no highlight at all until this is called, so a
+    /// viewer that wants the document to look like it prints should simply
+    /// never call it. `setFieldHighlightAlpha` alone does not enable it.
+    ///
+    /// `field_type` of `.unknown` applies to every field in the document.
+    ///
+    /// `color` is `0x00bbggrr` — pdfium's `FX_COLORREF`, i.e. red is
+    /// `0x000000FF`. Note that fpdf_formfill.h documents this parameter as
+    /// `0xxxrrggbb`; the header is wrong, verified against pdfium 7215 in
+    /// "form: field highlight is opt-in" below.
+    pub fn setFieldHighlightColor(self: *FormHandle, field_type: FormFieldType, color: u32) void {
+        FPDF_SetFormFieldHighlightColor(@ptrCast(self), @intFromEnum(field_type), @as(c_ulong, color));
+    }
+
+    /// Set the opacity, 0-255, of the highlight enabled by
+    /// `setFieldHighlightColor`. Has no effect on its own.
+    pub fn setFieldHighlightAlpha(self: *FormHandle, alpha: u8) void {
+        FPDF_SetFormFieldHighlightAlpha(@ptrCast(self), alpha);
+    }
 };
 
 pub const SaveFlags = enum(c_uint) {
@@ -436,6 +602,33 @@ pub const Page = opaque {
             .index = 0,
             .page = self,
         };
+    }
+
+    /// Tell the form fill environment this page was loaded. Required before
+    /// any form operation on the page: `FPDF_FFLDraw` otherwise has no page
+    /// view to draw into.
+    ///
+    /// Must be paired with `formOnBeforeClose` before `deinit`, or the form
+    /// environment is left holding a dangling page pointer.
+    pub fn formOnAfterLoad(self: *Page, form_handle: *FormHandle) void {
+        FORM_OnAfterLoadPage(@ptrCast(self), @ptrCast(form_handle));
+    }
+
+    /// The other half of `formOnAfterLoad`. Call immediately before `deinit`.
+    pub fn formOnBeforeClose(self: *Page, form_handle: *FormHandle) void {
+        FORM_OnBeforeClosePage(@ptrCast(self), @ptrCast(form_handle));
+    }
+
+    /// The widget annotation whose rectangle contains (`x`, `y`), in PDF user
+    /// space (bottom-left origin, points).
+    ///
+    /// The caller owns the result and must `deinit` it.
+    pub fn getFormFieldAnnotAtPoint(self: *Page, form_handle: *FormHandle, x: f32, y: f32) ?*Annotation {
+        const point = c.FS_POINTF{ .x = x, .y = y };
+        if (FPDFAnnot_GetFormFieldAtPoint(@ptrCast(form_handle), @ptrCast(self), &point)) |annot| {
+            return @ptrCast(annot);
+        }
+        return null;
     }
 };
 
@@ -522,6 +715,38 @@ pub const Bitmap = opaque {
         flags: BitmapRenderFlags,
     ) void {
         FPDF_RenderPageBitmap(@ptrCast(self), @ptrCast(page), x, y, width, height, rotate, @as(c_int, @bitCast(flags)));
+    }
+
+    /// Draw the page's form fields (widget annotations) over what is already
+    /// in the bitmap. `renderPage` does not draw them — not even with
+    /// `.annot = true`, which only covers *static* annotation appearance
+    /// streams — so a fillable form renders blank without this call.
+    ///
+    /// Takes the same geometry and flags as `renderPage`; pass the same
+    /// values you passed there, and call it immediately after. `page` must
+    /// have had `formOnAfterLoad` called on it with this same handle.
+    pub fn drawFormFields(
+        self: *Bitmap,
+        form_handle: *FormHandle,
+        page: *Page,
+        x: c_int,
+        y: c_int,
+        width: c_int,
+        height: c_int,
+        rotate: c_int,
+        flags: BitmapRenderFlags,
+    ) void {
+        FPDF_FFLDraw(
+            @ptrCast(form_handle),
+            @ptrCast(self),
+            @ptrCast(page),
+            x,
+            y,
+            width,
+            height,
+            rotate,
+            @as(c_int, @bitCast(flags)),
+        );
     }
 
     pub fn deinit(self: *Bitmap) void {
@@ -921,6 +1146,130 @@ comptime {
     assert(test_rect.bottom == test_c_rect.bottom);
 }
 
+/// An annotation's flags, from the `FPDF_ANNOT_FLAG_*` defines in fpdf_annot.h
+/// (PDF Reference 6th edition, table 8.16).
+///
+/// `hidden` and `noview` are the two that matter to a viewer: pdfium paints
+/// neither, so a consumer walking annotations for their text should skip them
+/// rather than surface content the page does not show.
+pub const AnnotationFlags = packed struct {
+    invisible: bool = false,
+    hidden: bool = false,
+    print: bool = false,
+    nozoom: bool = false,
+
+    norotate: bool = false,
+    noview: bool = false,
+    readonly: bool = false,
+    locked: bool = false,
+
+    togglenoview: bool = false,
+    _padding_1: u7 = 0,
+
+    _padding_2: u16 = 0,
+};
+
+comptime {
+    assert(@sizeOf(AnnotationFlags) == @sizeOf(c_int));
+    assert(@as(c_int, @bitCast(AnnotationFlags{})) == c.FPDF_ANNOT_FLAG_NONE);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .invisible = true })) == c.FPDF_ANNOT_FLAG_INVISIBLE);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .hidden = true })) == c.FPDF_ANNOT_FLAG_HIDDEN);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .print = true })) == c.FPDF_ANNOT_FLAG_PRINT);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .nozoom = true })) == c.FPDF_ANNOT_FLAG_NOZOOM);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .norotate = true })) == c.FPDF_ANNOT_FLAG_NOROTATE);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .noview = true })) == c.FPDF_ANNOT_FLAG_NOVIEW);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .readonly = true })) == c.FPDF_ANNOT_FLAG_READONLY);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .locked = true })) == c.FPDF_ANNOT_FLAG_LOCKED);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .togglenoview = true })) == c.FPDF_ANNOT_FLAG_TOGGLENOVIEW);
+}
+
+/// The kind of an interactive form field, from the `FPDF_FORMFIELD_*` defines
+/// in fpdf_formfill.h.
+///
+/// pdfium builds with XFA enabled can additionally return values 8-15 for XFA
+/// fields; the vendored binaries are built without XFA, and
+/// `Annotation.getFormFieldType` reports anything outside this set (including
+/// pdfium's -1 error return) as `error.Failed`.
+pub const FormFieldType = enum(c_int) {
+    unknown = c.FPDF_FORMFIELD_UNKNOWN,
+    push_button = c.FPDF_FORMFIELD_PUSHBUTTON,
+    checkbox = c.FPDF_FORMFIELD_CHECKBOX,
+    radio_button = c.FPDF_FORMFIELD_RADIOBUTTON,
+    combo_box = c.FPDF_FORMFIELD_COMBOBOX,
+    list_box = c.FPDF_FORMFIELD_LISTBOX,
+    text_field = c.FPDF_FORMFIELD_TEXTFIELD,
+    signature = c.FPDF_FORMFIELD_SIGNATURE,
+};
+
+/// The `/Ff` field flags of a form field, from the `FPDF_FORMFLAG_*` defines.
+/// The `text_*` bits are only meaningful for text fields and the `choice_*`
+/// bits only for combo and list boxes.
+pub const FormFieldFlags = packed struct(c_int) {
+    readonly: bool = false,
+    required: bool = false,
+    noexport: bool = false,
+    _padding_1: u9 = 0,
+
+    text_multiline: bool = false,
+    text_password: bool = false,
+    _padding_2: u3 = 0,
+
+    choice_combo: bool = false,
+    choice_edit: bool = false,
+    _padding_3: u2 = 0,
+
+    choice_multi_select: bool = false,
+    _padding_4: u10 = 0,
+};
+
+comptime {
+    assert(@sizeOf(FormFieldFlags) == @sizeOf(c_int));
+    assert(@as(c_int, @bitCast(FormFieldFlags{})) == c.FPDF_FORMFLAG_NONE);
+    assert(@as(c_int, @bitCast(FormFieldFlags{ .readonly = true })) == c.FPDF_FORMFLAG_READONLY);
+    assert(@as(c_int, @bitCast(FormFieldFlags{ .required = true })) == c.FPDF_FORMFLAG_REQUIRED);
+    assert(@as(c_int, @bitCast(FormFieldFlags{ .noexport = true })) == c.FPDF_FORMFLAG_NOEXPORT);
+    assert(@as(c_int, @bitCast(FormFieldFlags{ .text_multiline = true })) == c.FPDF_FORMFLAG_TEXT_MULTILINE);
+    assert(@as(c_int, @bitCast(FormFieldFlags{ .text_password = true })) == c.FPDF_FORMFLAG_TEXT_PASSWORD);
+    assert(@as(c_int, @bitCast(FormFieldFlags{ .choice_combo = true })) == c.FPDF_FORMFLAG_CHOICE_COMBO);
+    assert(@as(c_int, @bitCast(FormFieldFlags{ .choice_edit = true })) == c.FPDF_FORMFLAG_CHOICE_EDIT);
+    assert(@as(c_int, @bitCast(FormFieldFlags{ .choice_multi_select = true })) == c.FPDF_FORMFLAG_CHOICE_MULTI_SELECT);
+}
+
+/// pdfium's two-call UTF-16LE string convention, shared by every form-field
+/// string getter: call once with a null buffer to learn the length in *bytes*
+/// including the two-byte NUL, allocate, call again, then drop the NUL and
+/// transcode.
+///
+/// `getter` is any pdfium function whose last two parameters are
+/// `(FPDF_WCHAR* buffer, unsigned long buflen)`; `leading_args` is a tuple of
+/// everything before them.
+///
+/// Returns an empty string for pdfium's two "nothing here" answers: 0 (error
+/// or absent) and 2 (an empty string, i.e. just the NUL).
+fn getUtf16StringAsUtf8(
+    allocator: std.mem.Allocator,
+    getter: anytype,
+    leading_args: anytype,
+) ![]u8 {
+    const null_buffer: [*c]u16 = null;
+    const byte_len: usize = @intCast(@call(.auto, getter, leading_args ++ .{ null_buffer, @as(c_ulong, 0) }));
+    if (byte_len < 4) return allocator.dupe(u8, "");
+
+    const buffer = try allocator.alloc(u16, byte_len / 2);
+    defer allocator.free(buffer);
+
+    const check = @call(.auto, getter, leading_args ++ .{
+        @as([*c]u16, @ptrCast(buffer.ptr)),
+        @as(c_ulong, @intCast(buffer.len * 2)),
+    });
+    if (check != byte_len) {
+        log.err("pdfium string getter returned {d} but expected {d}", .{ check, byte_len });
+        return error.Failed;
+    }
+
+    return std.unicode.utf16LeToUtf8Alloc(allocator, buffer[0 .. buffer.len - 1]);
+}
+
 pub const Annotation = opaque {
     pub fn deinit(self: *Annotation) void {
         FPDFPage_CloseAnnot(@ptrCast(self));
@@ -928,6 +1277,14 @@ pub const Annotation = opaque {
 
     pub fn getSubtype(self: *Annotation) AnnotationSubtype {
         return @enumFromInt(FPDFAnnot_GetSubtype(@ptrCast(self)));
+    }
+
+    /// This annotation's flags. Requires `HAS_FORM_API` (see the declaration of
+    /// `FPDFAnnot_GetFlags`); reports all-clear when the symbol is unavailable,
+    /// which is the same answer pdfium gives for a flagless annotation.
+    pub fn getFlags(self: *Annotation) AnnotationFlags {
+        if (!HAS_FORM_API) return .{};
+        return @bitCast(FPDFAnnot_GetFlags(@ptrCast(self)));
     }
 
     pub fn getRect(self: *Annotation) !AnnotationRect {
@@ -944,6 +1301,99 @@ pub const Annotation = opaque {
             return @ptrCast(link);
         }
         return null;
+    }
+
+    // Form field accessors. All of these are only meaningful for annotations
+    // whose `getSubtype()` is `.widget`, and all require a live `FormHandle`
+    // for the document the annotation came from.
+
+    pub fn getFormFieldType(self: *Annotation, form_handle: *FormHandle) !FormFieldType {
+        const raw = FPDFAnnot_GetFormFieldType(@ptrCast(form_handle), @ptrCast(self));
+        return std.enums.fromInt(FormFieldType, raw) orelse {
+            log.err("FPDFAnnot_GetFormFieldType returned unexpected value {d}", .{raw});
+            return error.Failed;
+        };
+    }
+
+    /// The fully-qualified field name (`/T`, joined with any ancestors'). Every
+    /// widget of a radio group, and every kid widget of a field split across
+    /// pages, reports the same name — dedupe on it if you are summarising a
+    /// document's fields.
+    ///
+    /// Empty when the field has no name. Caller owns the result.
+    pub fn getFormFieldNameUtf8(self: *Annotation, form_handle: *FormHandle, allocator: std.mem.Allocator) ![]u8 {
+        return getUtf16StringAsUtf8(allocator, FPDFAnnot_GetFormFieldName, .{
+            @as(c.FPDF_FORMHANDLE, @ptrCast(form_handle)),
+            @as(c.FPDF_ANNOTATION, @ptrCast(self)),
+        });
+    }
+
+    /// The field's alternate name (`/TU`), the human-readable label a viewer
+    /// shows as a tooltip. Empty when absent. Caller owns the result.
+    pub fn getFormFieldAlternateNameUtf8(self: *Annotation, form_handle: *FormHandle, allocator: std.mem.Allocator) ![]u8 {
+        return getUtf16StringAsUtf8(allocator, FPDFAnnot_GetFormFieldAlternateName, .{
+            @as(c.FPDF_FORMHANDLE, @ptrCast(form_handle)),
+            @as(c.FPDF_ANNOTATION, @ptrCast(self)),
+        });
+    }
+
+    /// The field's value (`/V`). For checkboxes and radio buttons this is the
+    /// *field's* state, not this widget's — use `isChecked` plus
+    /// `getFormFieldExportValueUtf8` for those. Caller owns the result.
+    pub fn getFormFieldValueUtf8(self: *Annotation, form_handle: *FormHandle, allocator: std.mem.Allocator) ![]u8 {
+        return getUtf16StringAsUtf8(allocator, FPDFAnnot_GetFormFieldValue, .{
+            @as(c.FPDF_FORMHANDLE, @ptrCast(form_handle)),
+            @as(c.FPDF_ANNOTATION, @ptrCast(self)),
+        });
+    }
+
+    /// The "on" state name of a checkbox or radio button widget — what `/V`
+    /// holds when this particular widget is the checked one. Empty for other
+    /// field kinds. Caller owns the result.
+    pub fn getFormFieldExportValueUtf8(self: *Annotation, form_handle: *FormHandle, allocator: std.mem.Allocator) ![]u8 {
+        return getUtf16StringAsUtf8(allocator, FPDFAnnot_GetFormFieldExportValue, .{
+            @as(c.FPDF_FORMHANDLE, @ptrCast(form_handle)),
+            @as(c.FPDF_ANNOTATION, @ptrCast(self)),
+        });
+    }
+
+    pub fn getFormFieldFlags(self: *Annotation, form_handle: *FormHandle) !FormFieldFlags {
+        const raw = FPDFAnnot_GetFormFieldFlags(@ptrCast(form_handle), @ptrCast(self));
+        if (raw < 0) return error.Failed;
+        return @bitCast(raw);
+    }
+
+    /// Whether this checkbox or radio button widget is the checked one. False
+    /// for every other field kind.
+    pub fn isChecked(self: *Annotation, form_handle: *FormHandle) bool {
+        return FPDFAnnot_IsChecked(@ptrCast(form_handle), @ptrCast(self)) != 0;
+    }
+
+    /// The number of entries in a combo or list box's `/Opt` array.
+    pub fn getOptionCount(self: *Annotation, form_handle: *FormHandle) !usize {
+        const count = FPDFAnnot_GetOptionCount(@ptrCast(form_handle), @ptrCast(self));
+        if (count < 0) return error.Failed;
+        return @intCast(count);
+    }
+
+    /// The label of the option at `index` in a combo or list box. Caller owns
+    /// the result.
+    pub fn getOptionLabelUtf8(
+        self: *Annotation,
+        form_handle: *FormHandle,
+        index: usize,
+        allocator: std.mem.Allocator,
+    ) ![]u8 {
+        return getUtf16StringAsUtf8(allocator, FPDFAnnot_GetOptionLabel, .{
+            @as(c.FPDF_FORMHANDLE, @ptrCast(form_handle)),
+            @as(c.FPDF_ANNOTATION, @ptrCast(self)),
+            @as(c_int, @intCast(index)),
+        });
+    }
+
+    /// Whether the option at `index` is selected. A list box may have several.
+    pub fn isOptionSelected(self: *Annotation, form_handle: *FormHandle, index: usize) bool {
+        return FPDFAnnot_IsOptionSelected(@ptrCast(form_handle), @ptrCast(self), @intCast(index)) != 0;
     }
 };
 
@@ -1113,6 +1563,353 @@ test "find bookmark" {
     defer testing.allocator.free(title);
 
     try testing.expectEqualStrings("Introduction", title);
+}
+
+// The form-field fixture. Regenerate with `python3 test/gen_form.py`; see that
+// script for what it contains.
+const TEST_FORM_PDF = "test/form.pdf";
+
+/// Everything `form_fields.zig`-style extraction needs from one widget annot,
+/// flattened so the tests can assert on it as data. Allocated into an arena by
+/// `TEST_collectFormFields`.
+const TEST_FormField = struct {
+    kind: FormFieldType,
+    name: []const u8,
+    label: []const u8,
+    value: []const u8,
+    export_value: []const u8,
+    flags: FormFieldFlags,
+    checked: bool,
+};
+
+fn TEST_collectFormFields(
+    arena: std.mem.Allocator,
+    page: *Page,
+    form_handle: *FormHandle,
+) ![]TEST_FormField {
+    var fields: std.ArrayList(TEST_FormField) = .empty;
+    for (0..page.getAnnotationCount()) |i| {
+        const annot = try page.getAnnotation(i);
+        defer annot.deinit();
+        if (annot.getSubtype() != .widget) continue;
+
+        try fields.append(arena, .{
+            .kind = try annot.getFormFieldType(form_handle),
+            .name = try annot.getFormFieldNameUtf8(form_handle, arena),
+            .label = try annot.getFormFieldAlternateNameUtf8(form_handle, arena),
+            .value = try annot.getFormFieldValueUtf8(form_handle, arena),
+            .export_value = try annot.getFormFieldExportValueUtf8(form_handle, arena),
+            .flags = try annot.getFormFieldFlags(form_handle),
+            .checked = annot.isChecked(form_handle),
+        });
+    }
+    return fields.toOwnedSlice(arena);
+}
+
+test "form: getFormType" {
+    const no_form = try Document.load("test/test.pdf");
+    defer no_form.deinit();
+    try testing.expectEqual(FormType.none, no_form.getFormType());
+
+    const form = try Document.load(TEST_FORM_PDF);
+    defer form.deinit();
+    try testing.expectEqual(FormType.acro_form, form.getFormType());
+}
+
+test "form: field metadata" {
+    const doc = try Document.load(TEST_FORM_PDF);
+    defer doc.deinit();
+
+    // A local is fine here only because it outlives the handle within this
+    // function; a real caller has to keep it somewhere with a stable address.
+    var info = defaultFormFillInfo();
+    const form_handle = doc.initFormFillEnv(&info).?;
+    defer form_handle.deinit();
+
+    const page = try doc.loadPage(0);
+    page.formOnAfterLoad(form_handle);
+    defer {
+        page.formOnBeforeClose(form_handle);
+        page.deinit();
+    }
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const fields = try TEST_collectFormFields(arena, page, form_handle);
+
+    // Three of these are the one radio group: every button in a group is its
+    // own widget annotation, all sharing the field name. The last is hidden —
+    // still a field, and still enumerated here; see "form: annotation flags".
+    try testing.expectEqual(@as(usize, 11), fields.len);
+
+    try testing.expectEqual(FormFieldType.text_field, fields[0].kind);
+    try testing.expectEqualStrings("full_name", fields[0].name);
+    try testing.expectEqualStrings("Full name", fields[0].label);
+    try testing.expectEqualStrings("Ada Lovelace", fields[0].value);
+    try testing.expectEqual(false, fields[0].flags.readonly);
+
+    // An empty value comes back as "", not as an error.
+    try testing.expectEqualStrings("email", fields[1].name);
+    try testing.expectEqualStrings("", fields[1].value);
+
+    try testing.expectEqualStrings("account_id", fields[2].name);
+    try testing.expectEqualStrings("ENO-00042", fields[2].value);
+    try testing.expectEqual(true, fields[2].flags.readonly);
+
+    try testing.expectEqual(FormFieldType.checkbox, fields[3].kind);
+    try testing.expectEqualStrings("agree_terms", fields[3].name);
+    try testing.expectEqual(true, fields[3].checked);
+    try testing.expectEqualStrings("Yes", fields[3].export_value);
+
+    try testing.expectEqual(FormFieldType.checkbox, fields[4].kind);
+    try testing.expectEqualStrings("subscribe", fields[4].name);
+    try testing.expectEqual(false, fields[4].checked);
+
+    // The radio group: same name on all three, exactly one checked, and the
+    // export value is what distinguishes them.
+    var checked_count: usize = 0;
+    var checked_export: []const u8 = "";
+    for (fields[5..8]) |field| {
+        try testing.expectEqual(FormFieldType.radio_button, field.kind);
+        try testing.expectEqualStrings("plan", field.name);
+        if (field.checked) {
+            checked_count += 1;
+            checked_export = field.export_value;
+        }
+    }
+    try testing.expectEqual(@as(usize, 1), checked_count);
+    try testing.expectEqualStrings("pro", checked_export);
+
+    try testing.expectEqual(FormFieldType.combo_box, fields[8].kind);
+    try testing.expectEqualStrings("country", fields[8].name);
+    try testing.expectEqualStrings("Canada", fields[8].value);
+    try testing.expectEqual(true, fields[8].flags.choice_combo);
+
+    try testing.expectEqual(FormFieldType.list_box, fields[9].kind);
+    try testing.expectEqualStrings("languages", fields[9].name);
+    try testing.expectEqual(true, fields[9].flags.choice_multi_select);
+}
+
+test "form: annotation flags distinguish a hidden field" {
+    const doc = try Document.load(TEST_FORM_PDF);
+    defer doc.deinit();
+
+    const page = try doc.loadPage(0);
+    defer page.deinit();
+
+    // `internal_ref` is the last widget in the fixture and the only hidden one.
+    // Note this needs no form handle: annotation flags are a property of the
+    // annotation, not of the form field.
+    var visible: usize = 0;
+    var hidden: usize = 0;
+    for (0..page.getAnnotationCount()) |i| {
+        const annot = try page.getAnnotation(i);
+        defer annot.deinit();
+        if (annot.getSubtype() != .widget) continue;
+
+        const flags = annot.getFlags();
+        if (flags.hidden) {
+            hidden += 1;
+            // The hidden one is hidden and nothing else; in particular pdfium
+            // does not also mark it noview.
+            try testing.expectEqual(false, flags.noview);
+            try testing.expectEqual(false, flags.print);
+        } else {
+            visible += 1;
+            try testing.expectEqual(true, flags.print);
+        }
+    }
+    try testing.expectEqual(@as(usize, 1), hidden);
+    try testing.expectEqual(@as(usize, 10), visible);
+}
+
+test "form: choice options" {
+    const doc = try Document.load(TEST_FORM_PDF);
+    defer doc.deinit();
+
+    var info = defaultFormFillInfo();
+    const form_handle = doc.initFormFillEnv(&info).?;
+    defer form_handle.deinit();
+
+    const page = try doc.loadPage(0);
+    page.formOnAfterLoad(form_handle);
+    defer {
+        page.formOnBeforeClose(form_handle);
+        page.deinit();
+    }
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // The combo box, at annot index 8, and the list box at 9.
+    for ([_]struct { index: usize, expected: []const []const u8, selected: []const u8 }{
+        .{ .index = 8, .expected = &.{ "Canada", "United States", "Mexico" }, .selected = "Canada" },
+        .{ .index = 9, .expected = &.{ "Zig", "C", "Rust" }, .selected = "Zig" },
+    }) |case| {
+        const annot = try page.getAnnotation(case.index);
+        defer annot.deinit();
+
+        try testing.expectEqual(case.expected.len, try annot.getOptionCount(form_handle));
+
+        var selected: []const u8 = "";
+        for (case.expected, 0..) |expected_label, i| {
+            const label = try annot.getOptionLabelUtf8(form_handle, i, arena);
+            try testing.expectEqualStrings(expected_label, label);
+            if (annot.isOptionSelected(form_handle, i)) selected = label;
+        }
+        try testing.expectEqualStrings(case.selected, selected);
+    }
+}
+
+test "form: getFormFieldAnnotAtPoint" {
+    const doc = try Document.load(TEST_FORM_PDF);
+    defer doc.deinit();
+
+    var info = defaultFormFillInfo();
+    const form_handle = doc.initFormFillEnv(&info).?;
+    defer form_handle.deinit();
+
+    const page = try doc.loadPage(0);
+    page.formOnAfterLoad(form_handle);
+    defer {
+        page.formOnBeforeClose(form_handle);
+        page.deinit();
+    }
+
+    // The middle of full_name's rect, in PDF user space (bottom-left origin).
+    const hit = page.getFormFieldAnnotAtPoint(form_handle, 172, 670).?;
+    defer hit.deinit();
+
+    const name = try hit.getFormFieldNameUtf8(form_handle, testing.allocator);
+    defer testing.allocator.free(name);
+    try testing.expectEqualStrings("full_name", name);
+
+    // Empty margin, well clear of every widget.
+    try testing.expectEqual(@as(?*Annotation, null), page.getFormFieldAnnotAtPoint(form_handle, 500, 100));
+}
+
+/// Render `page` at 1:1 into a fresh BGRA buffer, optionally drawing form
+/// fields over it. Caller owns the buffer.
+fn TEST_renderFormPage(allocator: std.mem.Allocator, page: *Page, form_handle: ?*FormHandle) ![]u8 {
+    const width: c_int = @intFromFloat(@round(page.getWidth()));
+    const height: c_int = @intFromFloat(@round(page.getHeight()));
+    const stride = width * 4;
+
+    const buffer = try allocator.alloc(u8, @intCast(height * stride));
+    errdefer allocator.free(buffer);
+
+    const bitmap = try Bitmap.initEx(width, height, .bgra, buffer, stride);
+    defer bitmap.deinit();
+
+    try bitmap.fillRect(0, 0, width, height, @bitCast(@as(c_ulong, 0xFFFFFFFF)));
+    bitmap.renderPage(page, 0, 0, width, height, 0, .{ .annot = true });
+    if (form_handle) |fh| {
+        bitmap.drawFormFields(fh, page, 0, 0, width, height, 0, .{ .annot = true });
+    }
+    return buffer;
+}
+
+/// Count the non-white pixels of `buffer` inside a top-left-origin rect.
+fn TEST_countNonWhite(buffer: []const u8, stride: usize, x: usize, y: usize, width: usize, height: usize) usize {
+    var count: usize = 0;
+    for (y..y + height) |row| {
+        for (x..x + width) |col| {
+            const px = buffer[row * stride + col * 4 ..][0..4];
+            if (px[0] != 0xFF or px[1] != 0xFF or px[2] != 0xFF) count += 1;
+        }
+    }
+    return count;
+}
+
+test "form: drawFormFields paints widgets renderPage does not" {
+    const doc = try Document.load(TEST_FORM_PDF);
+    defer doc.deinit();
+
+    var info = defaultFormFillInfo();
+    const form_handle = doc.initFormFillEnv(&info).?;
+    defer form_handle.deinit();
+
+    const page = try doc.loadPage(0);
+    page.formOnAfterLoad(form_handle);
+    defer {
+        page.formOnBeforeClose(form_handle);
+        page.deinit();
+    }
+
+    const stride: usize = @intFromFloat(@round(page.getWidth()) * 4);
+    const page_height: usize = @intFromFloat(@round(page.getHeight()));
+
+    // full_name's widget rect is (72, 660)-(272, 680) in PDF user space. Take
+    // it inset by 4pt and flip Y against the page height for the
+    // top-left-origin raster: the inset drops the field's *border*, which
+    // reportlab draws into the page content stream and which therefore shows
+    // up with or without a form environment. What is left inside is only the
+    // widget's own appearance stream — the text "Ada Lovelace".
+    const rect_x: usize = 76;
+    const rect_y: usize = page_height - 676;
+    const rect_w: usize = 192;
+    const rect_h: usize = 12;
+
+    // The negative case, and the whole reason this binding exists:
+    // FPDF_RenderPageBitmap skips widget annotations even with FPDF_ANNOT, so
+    // the value a user typed into the form is simply not there.
+    {
+        const buffer = try TEST_renderFormPage(testing.allocator, page, null);
+        defer testing.allocator.free(buffer);
+        try testing.expectEqual(
+            @as(usize, 0),
+            TEST_countNonWhite(buffer, stride, rect_x, rect_y, rect_w, rect_h),
+        );
+    }
+
+    {
+        const buffer = try TEST_renderFormPage(testing.allocator, page, form_handle);
+        defer testing.allocator.free(buffer);
+        try testing.expect(TEST_countNonWhite(buffer, stride, rect_x, rect_y, rect_w, rect_h) > 0);
+    }
+}
+
+test "form: field highlight is opt-in" {
+    const doc = try Document.load(TEST_FORM_PDF);
+    defer doc.deinit();
+
+    var info = defaultFormFillInfo();
+    const form_handle = doc.initFormFillEnv(&info).?;
+    defer form_handle.deinit();
+
+    const page = try doc.loadPage(0);
+    page.formOnAfterLoad(form_handle);
+    defer {
+        page.formOnBeforeClose(form_handle);
+        page.deinit();
+    }
+
+    const stride: usize = @intFromFloat(@round(page.getWidth()) * 4);
+    const page_height: usize = @intFromFloat(@round(page.getHeight()));
+    // A point inside full_name's rect but clear of its text and border.
+    const sample = (page_height - 675) * stride + 150 * 4;
+
+    // Untouched by default: no highlight, so the field's background is the
+    // page's white. A read-only viewer needs to do nothing to get this.
+    {
+        const buffer = try TEST_renderFormPage(testing.allocator, page, form_handle);
+        defer testing.allocator.free(buffer);
+        try testing.expectEqualSlices(u8, &.{ 0xFF, 0xFF, 0xFF }, buffer[sample..][0..3]);
+    }
+
+    // Setting a colour is what switches highlighting on. 0x000000FF is red,
+    // *not* blue: the parameter is 0x00bbggrr, contrary to the header comment.
+    {
+        form_handle.setFieldHighlightColor(.unknown, 0x000000FF);
+        form_handle.setFieldHighlightAlpha(255);
+        const buffer = try TEST_renderFormPage(testing.allocator, page, form_handle);
+        defer testing.allocator.free(buffer);
+        // BGRA byte order.
+        try testing.expectEqualSlices(u8, &.{ 0x00, 0x00, 0xFF }, buffer[sample..][0..3]);
+    }
 }
 
 pub fn importPagesByIndex(
