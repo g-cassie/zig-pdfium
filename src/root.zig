@@ -181,6 +181,13 @@ pub var FPDFAnnot_GetOptionCount: *@TypeOf(c.FPDFAnnot_GetOptionCount) = undefin
 pub var FPDFAnnot_GetOptionLabel: *@TypeOf(c.FPDFAnnot_GetOptionLabel) = undefined;
 pub var FPDFAnnot_IsOptionSelected: *@TypeOf(c.FPDFAnnot_IsOptionSelected) = undefined;
 
+// fpdf_annot.h - Annotation flags. Not form-specific, but an "Experimental API"
+// like the block above, and its only caller today is the form-field walk (which
+// uses it to skip widgets pdfium won't draw), so it shares `HAS_FORM_API` rather
+// than introducing a second capability flag. Split it out if a non-form caller
+// appears.
+pub var FPDFAnnot_GetFlags: *@TypeOf(c.FPDFAnnot_GetFlags) = undefined;
+
 pub fn bindPdfium(path: []const u8) !void {
     if (IS_BOUND) {
         log.warn("PDFium already bound", .{});
@@ -324,6 +331,8 @@ pub fn bindPdfium(path: []const u8) !void {
         FPDFAnnot_GetOptionCount = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetOptionCount), "FPDFAnnot_GetOptionCount") orelse break :form;
         FPDFAnnot_GetOptionLabel = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetOptionLabel), "FPDFAnnot_GetOptionLabel") orelse break :form;
         FPDFAnnot_IsOptionSelected = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_IsOptionSelected), "FPDFAnnot_IsOptionSelected") orelse break :form;
+
+        FPDFAnnot_GetFlags = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetFlags), "FPDFAnnot_GetFlags") orelse break :form;
 
         HAS_FORM_API = true;
     }
@@ -1137,6 +1146,43 @@ comptime {
     assert(test_rect.bottom == test_c_rect.bottom);
 }
 
+/// An annotation's flags, from the `FPDF_ANNOT_FLAG_*` defines in fpdf_annot.h
+/// (PDF Reference 6th edition, table 8.16).
+///
+/// `hidden` and `noview` are the two that matter to a viewer: pdfium paints
+/// neither, so a consumer walking annotations for their text should skip them
+/// rather than surface content the page does not show.
+pub const AnnotationFlags = packed struct {
+    invisible: bool = false,
+    hidden: bool = false,
+    print: bool = false,
+    nozoom: bool = false,
+
+    norotate: bool = false,
+    noview: bool = false,
+    readonly: bool = false,
+    locked: bool = false,
+
+    togglenoview: bool = false,
+    _padding_1: u7 = 0,
+
+    _padding_2: u16 = 0,
+};
+
+comptime {
+    assert(@sizeOf(AnnotationFlags) == @sizeOf(c_int));
+    assert(@as(c_int, @bitCast(AnnotationFlags{})) == c.FPDF_ANNOT_FLAG_NONE);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .invisible = true })) == c.FPDF_ANNOT_FLAG_INVISIBLE);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .hidden = true })) == c.FPDF_ANNOT_FLAG_HIDDEN);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .print = true })) == c.FPDF_ANNOT_FLAG_PRINT);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .nozoom = true })) == c.FPDF_ANNOT_FLAG_NOZOOM);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .norotate = true })) == c.FPDF_ANNOT_FLAG_NOROTATE);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .noview = true })) == c.FPDF_ANNOT_FLAG_NOVIEW);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .readonly = true })) == c.FPDF_ANNOT_FLAG_READONLY);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .locked = true })) == c.FPDF_ANNOT_FLAG_LOCKED);
+    assert(@as(c_int, @bitCast(AnnotationFlags{ .togglenoview = true })) == c.FPDF_ANNOT_FLAG_TOGGLENOVIEW);
+}
+
 /// The kind of an interactive form field, from the `FPDF_FORMFIELD_*` defines
 /// in fpdf_formfill.h.
 ///
@@ -1231,6 +1277,14 @@ pub const Annotation = opaque {
 
     pub fn getSubtype(self: *Annotation) AnnotationSubtype {
         return @enumFromInt(FPDFAnnot_GetSubtype(@ptrCast(self)));
+    }
+
+    /// This annotation's flags. Requires `HAS_FORM_API` (see the declaration of
+    /// `FPDFAnnot_GetFlags`); reports all-clear when the symbol is unavailable,
+    /// which is the same answer pdfium gives for a flagless annotation.
+    pub fn getFlags(self: *Annotation) AnnotationFlags {
+        if (!HAS_FORM_API) return .{};
+        return @bitCast(FPDFAnnot_GetFlags(@ptrCast(self)));
     }
 
     pub fn getRect(self: *Annotation) !AnnotationRect {
@@ -1586,8 +1640,9 @@ test "form: field metadata" {
     const fields = try TEST_collectFormFields(arena, page, form_handle);
 
     // Three of these are the one radio group: every button in a group is its
-    // own widget annotation, all sharing the field name.
-    try testing.expectEqual(@as(usize, 10), fields.len);
+    // own widget annotation, all sharing the field name. The last is hidden —
+    // still a field, and still enumerated here; see "form: annotation flags".
+    try testing.expectEqual(@as(usize, 11), fields.len);
 
     try testing.expectEqual(FormFieldType.text_field, fields[0].kind);
     try testing.expectEqualStrings("full_name", fields[0].name);
@@ -1635,6 +1690,39 @@ test "form: field metadata" {
     try testing.expectEqual(FormFieldType.list_box, fields[9].kind);
     try testing.expectEqualStrings("languages", fields[9].name);
     try testing.expectEqual(true, fields[9].flags.choice_multi_select);
+}
+
+test "form: annotation flags distinguish a hidden field" {
+    const doc = try Document.load(TEST_FORM_PDF);
+    defer doc.deinit();
+
+    const page = try doc.loadPage(0);
+    defer page.deinit();
+
+    // `internal_ref` is the last widget in the fixture and the only hidden one.
+    // Note this needs no form handle: annotation flags are a property of the
+    // annotation, not of the form field.
+    var visible: usize = 0;
+    var hidden: usize = 0;
+    for (0..page.getAnnotationCount()) |i| {
+        const annot = try page.getAnnotation(i);
+        defer annot.deinit();
+        if (annot.getSubtype() != .widget) continue;
+
+        const flags = annot.getFlags();
+        if (flags.hidden) {
+            hidden += 1;
+            // The hidden one is hidden and nothing else; in particular pdfium
+            // does not also mark it noview.
+            try testing.expectEqual(false, flags.noview);
+            try testing.expectEqual(false, flags.print);
+        } else {
+            visible += 1;
+            try testing.expectEqual(true, flags.print);
+        }
+    }
+    try testing.expectEqual(@as(usize, 1), hidden);
+    try testing.expectEqual(@as(usize, 10), visible);
 }
 
 test "form: choice options" {

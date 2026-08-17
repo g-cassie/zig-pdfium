@@ -118,6 +118,21 @@ def main():
         **common,
     )
 
+    # Hidden, filled text field. pdfium draws nothing for it, so a viewer must
+    # be able to tell it apart from a visible one via the annotation flags and
+    # skip it. Kept last so the indices of every field above stay put.
+    form.textfield(
+        name="internal_ref",
+        tooltip="Internal reference",
+        value="DO-NOT-SHOW",
+        x=72,
+        y=300,
+        width=200,
+        height=20,
+        annotationFlags="hidden",
+        **common,
+    )
+
     c.showPage()
     c.save()
     print("wrote", OUT)
