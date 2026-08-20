@@ -111,6 +111,9 @@ pub var FPDFPage_GetObject: *@TypeOf(c.FPDFPage_GetObject) = undefined;
 pub var FPDFPageObj_GetType: *@TypeOf(c.FPDFPageObj_GetType) = undefined;
 pub var FPDFPageObj_GetBounds: *@TypeOf(c.FPDFPageObj_GetBounds) = undefined;
 pub var FPDFPageObj_GetStrokeWidth: *@TypeOf(c.FPDFPageObj_GetStrokeWidth) = undefined;
+// Optional, alongside the form APIs below: Experimental in pdfium.
+pub var FPDFAnnot_GetObjectCount: *@TypeOf(c.FPDFAnnot_GetObjectCount) = undefined;
+pub var FPDFAnnot_GetObject: *@TypeOf(c.FPDFAnnot_GetObject) = undefined;
 pub var FPDFPath_CountSegments: *@TypeOf(c.FPDFPath_CountSegments) = undefined;
 pub var FPDFPath_GetPathSegment: *@TypeOf(c.FPDFPath_GetPathSegment) = undefined;
 pub var FPDFPathSegment_GetType: *@TypeOf(c.FPDFPathSegment_GetType) = undefined;
@@ -319,6 +322,9 @@ pub fn bindPdfium(path: []const u8) !void {
         FORM_OnBeforeClosePage = c_pdfium.?.lookup(@TypeOf(FORM_OnBeforeClosePage), "FORM_OnBeforeClosePage") orelse break :form;
         FPDF_SetFormFieldHighlightColor = c_pdfium.?.lookup(@TypeOf(FPDF_SetFormFieldHighlightColor), "FPDF_SetFormFieldHighlightColor") orelse break :form;
         FPDF_SetFormFieldHighlightAlpha = c_pdfium.?.lookup(@TypeOf(FPDF_SetFormFieldHighlightAlpha), "FPDF_SetFormFieldHighlightAlpha") orelse break :form;
+
+        FPDFAnnot_GetObjectCount = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetObjectCount), "FPDFAnnot_GetObjectCount") orelse break :form;
+        FPDFAnnot_GetObject = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetObject), "FPDFAnnot_GetObject") orelse break :form;
 
         FPDFAnnot_GetFormFieldType = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetFormFieldType), "FPDFAnnot_GetFormFieldType") orelse break :form;
         FPDFAnnot_GetFormFieldName = c_pdfium.?.lookup(@TypeOf(FPDFAnnot_GetFormFieldName), "FPDFAnnot_GetFormFieldName") orelse break :form;
@@ -1296,6 +1302,21 @@ pub const Annotation = opaque {
         return rect;
     }
 
+    /// Number of page objects in this annotation's appearance stream. Zero when
+    /// the build lacks the APIs.
+    pub fn getObjectCount(self: *Annotation) usize {
+        if (!HAS_FORM_API) return 0;
+        const count = FPDFAnnot_GetObjectCount(@ptrCast(self));
+        return if (count > 0) @intCast(count) else 0;
+    }
+
+    /// One page object of this annotation's appearance stream. Coordinates on
+    /// what it returns are appearance-stream space, not page space.
+    pub fn getObject(self: *Annotation, index: usize) ?*PageObject {
+        if (!HAS_FORM_API) return null;
+        return @ptrCast(FPDFAnnot_GetObject(@ptrCast(self), @intCast(index)));
+    }
+
     pub fn getLink(self: *Annotation) ?*Link {
         if (FPDFAnnot_GetLink(@ptrCast(self))) |link| {
             return @ptrCast(link);
@@ -1394,6 +1415,22 @@ pub const Annotation = opaque {
     /// Whether the option at `index` is selected. A list box may have several.
     pub fn isOptionSelected(self: *Annotation, form_handle: *FormHandle, index: usize) bool {
         return FPDFAnnot_IsOptionSelected(@ptrCast(form_handle), @ptrCast(self), @intCast(index)) != 0;
+    }
+};
+
+pub const PageObject = opaque {
+    /// One of the `FPDF_PAGEOBJ_*` constants.
+    pub fn getType(self: *PageObject) c_int {
+        return FPDFPageObj_GetType(@ptrCast(self));
+    }
+
+    pub fn getBounds(self: *PageObject) ?AnnotationRect {
+        var left: f32 = 0;
+        var bottom: f32 = 0;
+        var right: f32 = 0;
+        var top: f32 = 0;
+        if (FPDFPageObj_GetBounds(@ptrCast(self), &left, &bottom, &right, &top) != 1) return null;
+        return .{ .left = left, .bottom = bottom, .right = right, .top = top };
     }
 };
 
@@ -1789,6 +1826,47 @@ test "form: getFormFieldAnnotAtPoint" {
 
     // Empty margin, well clear of every widget.
     try testing.expectEqual(@as(?*Annotation, null), page.getFormFieldAnnotAtPoint(form_handle, 500, 100));
+}
+
+test "form: appearance stream objects" {
+    const doc = try Document.load(TEST_FORM_PDF);
+    defer doc.deinit();
+
+    var info = defaultFormFillInfo();
+    const form_handle = doc.initFormFillEnv(&info).?;
+    defer form_handle.deinit();
+
+    const page = try doc.loadPage(0);
+    page.formOnAfterLoad(form_handle);
+    defer {
+        page.formOnBeforeClose(form_handle);
+        page.deinit();
+    }
+
+    // full_name is filled, so its appearance stream draws text somewhere inside
+    // the widget's own 0-origin box. That extent is the only way to learn where
+    // a field's value actually sits — FPDFText_* cannot see appearance streams.
+    const filled = page.getFormFieldAnnotAtPoint(form_handle, 172, 670).?;
+    defer filled.deinit();
+
+    var text_objects: usize = 0;
+    for (0..filled.getObjectCount()) |i| {
+        const obj = filled.getObject(i).?;
+        if (obj.getType() != FPDF_PAGEOBJ_TEXT) continue;
+        text_objects += 1;
+        const b = obj.getBounds().?;
+        try testing.expect(b.left >= 0 and b.right > b.left and b.top > b.bottom);
+        const rect = try filled.getRect();
+        try testing.expect(b.right < rect.right - rect.left);
+    }
+    try testing.expectEqual(@as(usize, 1), text_objects);
+
+    // An empty field draws no text at all.
+    const empty = page.getFormFieldAnnotAtPoint(form_handle, 172, 630).?;
+    defer empty.deinit();
+    for (0..empty.getObjectCount()) |i| {
+        try testing.expect(empty.getObject(i).?.getType() != FPDF_PAGEOBJ_TEXT);
+    }
 }
 
 /// Render `page` at 1:1 into a fresh BGRA buffer, optionally drawing form
