@@ -61,6 +61,7 @@ pub var FPDF_CloseDocument: *@TypeOf(c.FPDF_CloseDocument) = undefined;
 pub var FPDF_GetPageWidthF: *@TypeOf(c.FPDF_GetPageWidthF) = undefined;
 pub var FPDF_GetPageHeightF: *@TypeOf(c.FPDF_GetPageHeightF) = undefined;
 pub var FPDFPage_GetRotation: *@TypeOf(c.FPDFPage_GetRotation) = undefined;
+pub var FPDF_GetPageBoundingBox: *@TypeOf(c.FPDF_GetPageBoundingBox) = undefined;
 
 // fpdf_text.h
 pub var FPDFText_LoadPage: *@TypeOf(c.FPDFText_LoadPage) = undefined;
@@ -227,6 +228,7 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDF_GetPageWidthF = c_pdfium.?.lookup(@TypeOf(FPDF_GetPageWidthF), "FPDF_GetPageWidthF").?;
     FPDF_GetPageHeightF = c_pdfium.?.lookup(@TypeOf(FPDF_GetPageHeightF), "FPDF_GetPageHeightF").?;
     FPDFPage_GetRotation = c_pdfium.?.lookup(@TypeOf(FPDFPage_GetRotation), "FPDFPage_GetRotation").?;
+    FPDF_GetPageBoundingBox = c_pdfium.?.lookup(@TypeOf(FPDF_GetPageBoundingBox), "FPDF_GetPageBoundingBox").?;
 
     // fpdf_text.h
     FPDFText_LoadPage = c_pdfium.?.lookup(@TypeOf(FPDFText_LoadPage), "FPDFText_LoadPage").?;
@@ -589,6 +591,14 @@ pub const Page = opaque {
 
     pub fn getRotation(self: *Page) PageRotation {
         return @enumFromInt(FPDFPage_GetRotation(@ptrCast(self)));
+    }
+
+    /// The intersection of the media box and crop box, in unrotated user space.
+    /// Rendering puts its corner, not the user-space origin, at the bitmap's.
+    pub fn getBoundingBox(self: *Page) ?AnnotationRect {
+        var rect: AnnotationRect = undefined;
+        if (FPDF_GetPageBoundingBox(@ptrCast(self), @ptrCast(&rect)) == 0) return null;
+        return rect;
     }
 
     pub fn loadTextPage(self: *Page) !*TextPage {
@@ -1085,6 +1095,16 @@ test "getRotation" {
     try testing.expectEqual(PageRotation.cw_90, rotated.getRotation());
     try testing.expectEqual(@as(f64, 792), rotated.getWidth());
     try testing.expectEqual(@as(f64, 612), rotated.getHeight());
+}
+
+test "getBoundingBox" {
+    const offset_pdf = try Document.load("test/offset-bbox.pdf");
+    defer offset_pdf.deinit();
+    const page = try offset_pdf.loadPage(0);
+    defer page.deinit();
+    try testing.expectEqual(AnnotationRect{ .left = 18, .top = 792, .right = 612, .bottom = 18 }, page.getBoundingBox().?);
+    try testing.expectEqual(@as(f64, 594), page.getWidth());
+    try testing.expectEqual(@as(f64, 774), page.getHeight());
 }
 
 test "getText" {
