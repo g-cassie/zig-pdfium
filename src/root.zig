@@ -60,6 +60,7 @@ pub var FPDF_ClosePage: *@TypeOf(c.FPDF_ClosePage) = undefined;
 pub var FPDF_CloseDocument: *@TypeOf(c.FPDF_CloseDocument) = undefined;
 pub var FPDF_GetPageWidthF: *@TypeOf(c.FPDF_GetPageWidthF) = undefined;
 pub var FPDF_GetPageHeightF: *@TypeOf(c.FPDF_GetPageHeightF) = undefined;
+pub var FPDFPage_GetRotation: *@TypeOf(c.FPDFPage_GetRotation) = undefined;
 
 // fpdf_text.h
 pub var FPDFText_LoadPage: *@TypeOf(c.FPDFText_LoadPage) = undefined;
@@ -225,6 +226,7 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDF_CloseDocument = c_pdfium.?.lookup(@TypeOf(FPDF_CloseDocument), "FPDF_CloseDocument").?;
     FPDF_GetPageWidthF = c_pdfium.?.lookup(@TypeOf(FPDF_GetPageWidthF), "FPDF_GetPageWidthF").?;
     FPDF_GetPageHeightF = c_pdfium.?.lookup(@TypeOf(FPDF_GetPageHeightF), "FPDF_GetPageHeightF").?;
+    FPDFPage_GetRotation = c_pdfium.?.lookup(@TypeOf(FPDFPage_GetRotation), "FPDFPage_GetRotation").?;
 
     // fpdf_text.h
     FPDFText_LoadPage = c_pdfium.?.lookup(@TypeOf(FPDFText_LoadPage), "FPDFText_LoadPage").?;
@@ -546,6 +548,14 @@ pub const SaveFlags = enum(c_uint) {
     remove_security = c.FPDF_REMOVE_SECURITY,
 };
 
+/// A page's /Rotate, clockwise.
+pub const PageRotation = enum(c_int) {
+    none = 0,
+    cw_90 = 1,
+    cw_180 = 2,
+    cw_270 = 3,
+};
+
 pub const FileWrite = extern struct {
     version: c_int,
     write_block: *const fn (self: *FileWrite, data: [*c]const u8, size: c_long) callconv(.c) c_int,
@@ -575,6 +585,10 @@ pub const Page = opaque {
 
     pub fn getHeight(self: *Page) f64 {
         return FPDF_GetPageHeightF(@ptrCast(self));
+    }
+
+    pub fn getRotation(self: *Page) PageRotation {
+        return @enumFromInt(FPDFPage_GetRotation(@ptrCast(self)));
     }
 
     pub fn loadTextPage(self: *Page) !*TextPage {
@@ -1055,6 +1069,22 @@ test "text search" {
 
     // Should not find a second occurrence
     try testing.expect(!search_handle.findNext());
+}
+
+test "getRotation" {
+    const test_pdf = try Document.load("test/test.pdf");
+    defer test_pdf.deinit();
+    const page = try test_pdf.loadPage(0);
+    defer page.deinit();
+    try testing.expectEqual(PageRotation.none, page.getRotation());
+
+    const rotated_pdf = try Document.load("test/rotated.pdf");
+    defer rotated_pdf.deinit();
+    const rotated = try rotated_pdf.loadPage(0);
+    defer rotated.deinit();
+    try testing.expectEqual(PageRotation.cw_90, rotated.getRotation());
+    try testing.expectEqual(@as(f64, 792), rotated.getWidth());
+    try testing.expectEqual(@as(f64, 612), rotated.getHeight());
 }
 
 test "getText" {
