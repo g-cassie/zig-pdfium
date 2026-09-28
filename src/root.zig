@@ -13,6 +13,7 @@ const c = @cImport({
     @cInclude("fpdf_ppo.h");
     @cInclude("fpdf_edit.h");
     @cInclude("fpdf_structtree.h");
+    @cInclude("fpdf_transformpage.h");
     // Also pulled in transitively by fpdf_annot.h, but the form-fill bindings
     // depend on it directly.
     @cInclude("fpdf_formfill.h");
@@ -73,6 +74,10 @@ pub var FPDFText_GetText: *@TypeOf(c.FPDFText_GetText) = undefined;
 pub var FPDFText_CountChars: *@TypeOf(c.FPDFText_CountChars) = undefined;
 pub var FPDFText_GetCharBox: *@TypeOf(c.FPDFText_GetCharBox) = undefined;
 pub var FPDFText_GetUnicode: *@TypeOf(c.FPDFText_GetUnicode) = undefined;
+pub var FPDFText_GetFontSize: *@TypeOf(c.FPDFText_GetFontSize) = undefined;
+pub var FPDFText_GetFontWeight: *@TypeOf(c.FPDFText_GetFontWeight) = undefined;
+pub var FPDFText_IsGenerated: *@TypeOf(c.FPDFText_IsGenerated) = undefined;
+pub var FPDFText_GetLooseCharBox: *@TypeOf(c.FPDFText_GetLooseCharBox) = undefined;
 
 // FPDFText_Find* functions
 pub var FPDFText_FindStart: *@TypeOf(c.FPDFText_FindStart) = undefined;
@@ -113,6 +118,7 @@ pub var FPDFPage_GetObject: *@TypeOf(c.FPDFPage_GetObject) = undefined;
 pub var FPDFPageObj_GetType: *@TypeOf(c.FPDFPageObj_GetType) = undefined;
 pub var FPDFPageObj_GetBounds: *@TypeOf(c.FPDFPageObj_GetBounds) = undefined;
 pub var FPDFPageObj_GetStrokeWidth: *@TypeOf(c.FPDFPageObj_GetStrokeWidth) = undefined;
+pub var FPDFPageObj_GetMatrix: *@TypeOf(c.FPDFPageObj_GetMatrix) = undefined;
 // Optional, alongside the form APIs below: Experimental in pdfium.
 pub var FPDFAnnot_GetObjectCount: *@TypeOf(c.FPDFAnnot_GetObjectCount) = undefined;
 pub var FPDFAnnot_GetObject: *@TypeOf(c.FPDFAnnot_GetObject) = undefined;
@@ -124,6 +130,12 @@ pub var FPDFPathSegment_GetClose: *@TypeOf(c.FPDFPathSegment_GetClose) = undefin
 pub var FPDFPath_GetDrawMode: *@TypeOf(c.FPDFPath_GetDrawMode) = undefined;
 pub var FPDFFormObj_CountObjects: *@TypeOf(c.FPDFFormObj_CountObjects) = undefined;
 pub var FPDFFormObj_GetObject: *@TypeOf(c.FPDFFormObj_GetObject) = undefined;
+
+// fpdf_transformpage.h - Clip path APIs
+pub var FPDFPageObj_GetClipPath: *@TypeOf(c.FPDFPageObj_GetClipPath) = undefined;
+pub var FPDFClipPath_CountPaths: *@TypeOf(c.FPDFClipPath_CountPaths) = undefined;
+pub var FPDFClipPath_CountPathSegments: *@TypeOf(c.FPDFClipPath_CountPathSegments) = undefined;
+pub var FPDFClipPath_GetPathSegment: *@TypeOf(c.FPDFClipPath_GetPathSegment) = undefined;
 
 // Page object type constants
 pub const FPDF_PAGEOBJ_TEXT = c.FPDF_PAGEOBJ_TEXT;
@@ -240,6 +252,10 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFText_CountChars = c_pdfium.?.lookup(@TypeOf(FPDFText_CountChars), "FPDFText_CountChars").?;
     FPDFText_GetCharBox = c_pdfium.?.lookup(@TypeOf(FPDFText_GetCharBox), "FPDFText_GetCharBox").?;
     FPDFText_GetUnicode = c_pdfium.?.lookup(@TypeOf(FPDFText_GetUnicode), "FPDFText_GetUnicode").?;
+    FPDFText_GetFontSize = c_pdfium.?.lookup(@TypeOf(FPDFText_GetFontSize), "FPDFText_GetFontSize").?;
+    FPDFText_GetFontWeight = c_pdfium.?.lookup(@TypeOf(FPDFText_GetFontWeight), "FPDFText_GetFontWeight").?;
+    FPDFText_IsGenerated = c_pdfium.?.lookup(@TypeOf(FPDFText_IsGenerated), "FPDFText_IsGenerated").?;
+    FPDFText_GetLooseCharBox = c_pdfium.?.lookup(@TypeOf(FPDFText_GetLooseCharBox), "FPDFText_GetLooseCharBox").?;
 
     // FPDFText_Find* functions
     FPDFText_FindStart = c_pdfium.?.lookup(@TypeOf(FPDFText_FindStart), "FPDFText_FindStart").?;
@@ -281,6 +297,7 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFPageObj_GetType = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetType), "FPDFPageObj_GetType").?;
     FPDFPageObj_GetBounds = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetBounds), "FPDFPageObj_GetBounds").?;
     FPDFPageObj_GetStrokeWidth = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetStrokeWidth), "FPDFPageObj_GetStrokeWidth").?;
+    FPDFPageObj_GetMatrix = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetMatrix), "FPDFPageObj_GetMatrix").?;
     FPDFPath_CountSegments = c_pdfium.?.lookup(@TypeOf(FPDFPath_CountSegments), "FPDFPath_CountSegments").?;
     FPDFPath_GetPathSegment = c_pdfium.?.lookup(@TypeOf(FPDFPath_GetPathSegment), "FPDFPath_GetPathSegment").?;
     FPDFPathSegment_GetType = c_pdfium.?.lookup(@TypeOf(FPDFPathSegment_GetType), "FPDFPathSegment_GetType").?;
@@ -289,6 +306,12 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFPath_GetDrawMode = c_pdfium.?.lookup(@TypeOf(FPDFPath_GetDrawMode), "FPDFPath_GetDrawMode").?;
     FPDFFormObj_CountObjects = c_pdfium.?.lookup(@TypeOf(FPDFFormObj_CountObjects), "FPDFFormObj_CountObjects").?;
     FPDFFormObj_GetObject = c_pdfium.?.lookup(@TypeOf(FPDFFormObj_GetObject), "FPDFFormObj_GetObject").?;
+
+    // fpdf_transformpage.h
+    FPDFPageObj_GetClipPath = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetClipPath), "FPDFPageObj_GetClipPath").?;
+    FPDFClipPath_CountPaths = c_pdfium.?.lookup(@TypeOf(FPDFClipPath_CountPaths), "FPDFClipPath_CountPaths").?;
+    FPDFClipPath_CountPathSegments = c_pdfium.?.lookup(@TypeOf(FPDFClipPath_CountPathSegments), "FPDFClipPath_CountPathSegments").?;
+    FPDFClipPath_GetPathSegment = c_pdfium.?.lookup(@TypeOf(FPDFClipPath_GetPathSegment), "FPDFClipPath_GetPathSegment").?;
 
     // fpdf_structtree.h
     FPDF_StructTree_GetForPage = c_pdfium.?.lookup(@TypeOf(FPDF_StructTree_GetForPage), "FPDF_StructTree_GetForPage").?;
@@ -916,6 +939,38 @@ pub const TextPage = opaque {
         return @intCast(result);
     }
 
+    /// The em size of the char's font, in points. 0 on failure.
+    pub fn getFontSize(self: *TextPage, index: usize) f64 {
+        return FPDFText_GetFontSize(@ptrCast(self), @intCast(index));
+    }
+
+    /// The char's font weight, CSS-style: 400 is normal, 700 bold. pdfium
+    /// derives it from the font descriptor's /StemV, so a font without one,
+    /// like an unembedded base-14 font, reports 0.
+    pub fn getFontWeight(self: *TextPage, index: usize) ?u16 {
+        const weight = FPDFText_GetFontWeight(@ptrCast(self), @intCast(index));
+        if (weight < 0) return null;
+        return @intCast(weight);
+    }
+
+    /// Whether pdfium inserted the char itself, such as the line break between
+    /// two text objects, rather than read it from the content stream.
+    pub fn isGenerated(self: *TextPage, index: usize) !bool {
+        return switch (FPDFText_IsGenerated(@ptrCast(self), @intCast(index))) {
+            0 => false,
+            1 => true,
+            else => error.Failed,
+        };
+    }
+
+    /// The char's box from its font's ascent and descent rather than its
+    /// glyph's outline, in user space.
+    pub fn getLooseCharBox(self: *TextPage, index: usize) !AnnotationRect {
+        var rect: AnnotationRect = undefined;
+        if (FPDFText_GetLooseCharBox(@ptrCast(self), @intCast(index), @ptrCast(&rect)) == 0) return error.Failed;
+        return rect;
+    }
+
     pub fn getText(
         self: *TextPage,
         allocator: std.mem.Allocator,
@@ -1105,6 +1160,66 @@ test "getBoundingBox" {
     try testing.expectEqual(AnnotationRect{ .left = 18, .top = 792, .right = 612, .bottom = 18 }, page.getBoundingBox().?);
     try testing.expectEqual(@as(f64, 594), page.getWidth());
     try testing.expectEqual(@as(f64, 774), page.getHeight());
+}
+
+// A clip of (100, 100)-(130, 150) cutting through "Hello" and "World", set on
+// two lines in a font whose descriptor has /StemV 140, then a form object drawn
+// under `2 0 0 3 10 20 cm`.
+const TEST_CLIP_FORM_PDF = "test/clip-form.pdf";
+
+test "text metrics" {
+    const doc = try Document.load(TEST_CLIP_FORM_PDF);
+    defer doc.deinit();
+    const page = try doc.loadPage(0);
+    defer page.deinit();
+    const text_page = try page.loadTextPage();
+    defer text_page.deinit();
+
+    try testing.expectEqual(@as(f64, 12), text_page.getFontSize(0));
+    try testing.expectEqual(@as(?u16, 700), text_page.getFontWeight(0));
+
+    // "Hello", the generated line break, then "World".
+    try testing.expectEqual(false, try text_page.isGenerated(0));
+    try testing.expectEqual(true, try text_page.isGenerated(5));
+    try testing.expectEqual(false, try text_page.isGenerated(7));
+
+    const tight = try text_page.getCharBox(0);
+    const loose = try text_page.getLooseCharBox(0);
+    try testing.expect(loose.bottom < tight.bottom and loose.top >= tight.top);
+    try testing.expectError(error.Failed, text_page.getLooseCharBox(1000));
+}
+
+test "page object matrix and clip path" {
+    const doc = try Document.load(TEST_CLIP_FORM_PDF);
+    defer doc.deinit();
+    const page = try doc.loadPage(0);
+    defer page.deinit();
+
+    try testing.expectEqual(@as(c_int, 3), FPDFPage_CountObjects(@ptrCast(page)));
+    const text: *PageObject = @ptrCast(FPDFPage_GetObject(@ptrCast(page), 0).?);
+    const form: *PageObject = @ptrCast(FPDFPage_GetObject(@ptrCast(page), 2).?);
+
+    try testing.expectEqual(Matrix{ .a = 2, .b = 0, .c = 0, .d = 3, .e = 10, .f = 20 }, form.getMatrix().?);
+
+    const clip = text.getClipPath().?;
+    try testing.expectEqual(@as(usize, 1), clip.countPaths());
+    var min: [2]f32 = .{ std.math.floatMax(f32), std.math.floatMax(f32) };
+    var max: [2]f32 = .{ -std.math.floatMax(f32), -std.math.floatMax(f32) };
+    for (0..clip.countPathSegments(0)) |i| {
+        const point = clip.getPathSegment(0, i).?.getPoint().?;
+        min = .{ @min(min[0], point[0]), @min(min[1], point[1]) };
+        max = .{ @max(max[0], point[0]), @max(max[1], point[1]) };
+    }
+    try testing.expectEqual([2]f32{ 100, 100 }, min);
+    try testing.expectEqual([2]f32{ 130, 150 }, max);
+}
+
+test "Matrix apply and concat" {
+    const translate: Matrix = .{ .a = 1, .b = 0, .c = 0, .d = 1, .e = 10, .f = 20 };
+    const scale: Matrix = .{ .a = 2, .b = 0, .c = 0, .d = 3, .e = 0, .f = 0 };
+    try testing.expectEqual([2]f32{ 12, 23 }, translate.concat(scale).apply(1, 1));
+    try testing.expectEqual([2]f32{ 22, 63 }, scale.concat(translate).apply(1, 1));
+    try testing.expectEqual(translate, Matrix.identity.concat(translate));
 }
 
 test "getText" {
@@ -1481,6 +1596,85 @@ pub const PageObject = opaque {
         var top: f32 = 0;
         if (FPDFPageObj_GetBounds(@ptrCast(self), &left, &bottom, &right, &top) != 1) return null;
         return .{ .left = left, .bottom = bottom, .right = right, .top = top };
+    }
+
+    /// For a form object this takes its children's coordinates to its
+    /// parent's; for a path, its points.
+    pub fn getMatrix(self: *PageObject) ?Matrix {
+        var matrix: Matrix = undefined;
+        if (FPDFPageObj_GetMatrix(@ptrCast(self), @ptrCast(&matrix)) == 0) return null;
+        return matrix;
+    }
+
+    /// The clip's points are in the space of the form object holding this one,
+    /// not page space. An unclipped object still returns one, with no paths;
+    /// so does one whose clip is a lone rectangle holding all of it, which
+    /// pdfium drops while parsing.
+    pub fn getClipPath(self: *PageObject) ?*ClipPath {
+        return @ptrCast(FPDFPageObj_GetClipPath(@ptrCast(self)));
+    }
+};
+
+/// pdfium's FS_MATRIX: x' = a*x + c*y + e, y' = b*x + d*y + f.
+pub const Matrix = extern struct {
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    e: f32,
+    f: f32,
+
+    pub const identity: Matrix = .{ .a = 1, .b = 0, .c = 0, .d = 1, .e = 0, .f = 0 };
+
+    pub fn apply(self: Matrix, x: f32, y: f32) [2]f32 {
+        return .{
+            self.a * x + self.c * y + self.e,
+            self.b * x + self.d * y + self.f,
+        };
+    }
+
+    /// The matrix applying `inner` first, then `self`.
+    pub fn concat(self: Matrix, inner: Matrix) Matrix {
+        return .{
+            .a = self.a * inner.a + self.c * inner.b,
+            .b = self.b * inner.a + self.d * inner.b,
+            .c = self.a * inner.c + self.c * inner.d,
+            .d = self.b * inner.c + self.d * inner.d,
+            .e = self.a * inner.e + self.c * inner.f + self.e,
+            .f = self.b * inner.e + self.d * inner.f + self.f,
+        };
+    }
+};
+
+comptime {
+    assert(@sizeOf(Matrix) == @sizeOf(c.FS_MATRIX));
+    assert(@offsetOf(Matrix, "f") == @offsetOf(c.FS_MATRIX, "f"));
+}
+
+/// Owned by the page object it came from.
+pub const ClipPath = opaque {
+    pub fn countPaths(self: *ClipPath) usize {
+        const count = FPDFClipPath_CountPaths(@ptrCast(self));
+        return if (count > 0) @intCast(count) else 0;
+    }
+
+    pub fn countPathSegments(self: *ClipPath, path_index: usize) usize {
+        const count = FPDFClipPath_CountPathSegments(@ptrCast(self), @intCast(path_index));
+        return if (count > 0) @intCast(count) else 0;
+    }
+
+    /// Valid until the page holding the clip path is closed.
+    pub fn getPathSegment(self: *ClipPath, path_index: usize, segment_index: usize) ?*const PathSegment {
+        return @ptrCast(FPDFClipPath_GetPathSegment(@ptrCast(self), @intCast(path_index), @intCast(segment_index)));
+    }
+};
+
+pub const PathSegment = opaque {
+    pub fn getPoint(self: *const PathSegment) ?[2]f32 {
+        var x: f32 = 0;
+        var y: f32 = 0;
+        if (FPDFPathSegment_GetPoint(@ptrCast(self), &x, &y) == 0) return null;
+        return .{ x, y };
     }
 };
 
