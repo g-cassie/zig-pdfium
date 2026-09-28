@@ -1,0 +1,48 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> /XObject << /Fm1 6 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 130 >>
+stream
+q
+100 100 30 50 re W n
+BT /F1 12 Tf 110 130 Td (Hello) Tj ET
+BT /F1 12 Tf 110 110 Td (World) Tj ET
+Q
+q 2 0 0 3 10 20 cm /Fm1 Do Q
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /FontDescriptor 7 0 R >>
+endobj
+6 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 50 10] /Length 15 >>
+stream
+0 0 m 40 0 l S
+endstream
+endobj
+7 0 obj
+<< /Type /FontDescriptor /FontName /Helvetica-Bold /Flags 32 /FontBBox [-170 -228 1003 962] /ItalicAngle 0 /Ascent 718 /Descent -207 /CapHeight 718 /StemV 140 >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000267 00000 n 
+0000000447 00000 n 
+0000000544 00000 n 
+0000000656 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+833
+%%EOF
