@@ -76,6 +76,7 @@ pub var FPDFText_GetCharBox: *@TypeOf(c.FPDFText_GetCharBox) = undefined;
 pub var FPDFText_GetUnicode: *@TypeOf(c.FPDFText_GetUnicode) = undefined;
 pub var FPDFText_GetFontSize: *@TypeOf(c.FPDFText_GetFontSize) = undefined;
 pub var FPDFText_GetFontWeight: *@TypeOf(c.FPDFText_GetFontWeight) = undefined;
+pub var FPDFText_GetFontInfo: *@TypeOf(c.FPDFText_GetFontInfo) = undefined;
 pub var FPDFText_IsGenerated: *@TypeOf(c.FPDFText_IsGenerated) = undefined;
 pub var FPDFText_GetLooseCharBox: *@TypeOf(c.FPDFText_GetLooseCharBox) = undefined;
 
@@ -254,6 +255,7 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFText_GetUnicode = c_pdfium.?.lookup(@TypeOf(FPDFText_GetUnicode), "FPDFText_GetUnicode").?;
     FPDFText_GetFontSize = c_pdfium.?.lookup(@TypeOf(FPDFText_GetFontSize), "FPDFText_GetFontSize").?;
     FPDFText_GetFontWeight = c_pdfium.?.lookup(@TypeOf(FPDFText_GetFontWeight), "FPDFText_GetFontWeight").?;
+    FPDFText_GetFontInfo = c_pdfium.?.lookup(@TypeOf(FPDFText_GetFontInfo), "FPDFText_GetFontInfo").?;
     FPDFText_IsGenerated = c_pdfium.?.lookup(@TypeOf(FPDFText_IsGenerated), "FPDFText_IsGenerated").?;
     FPDFText_GetLooseCharBox = c_pdfium.?.lookup(@TypeOf(FPDFText_GetLooseCharBox), "FPDFText_GetLooseCharBox").?;
 
@@ -828,6 +830,28 @@ comptime {
     assert(@as(c_uint, @bitCast(SearchFlags{ .consecutive = true })) == c.FPDF_CONSECUTIVE);
 }
 
+pub const FontInfo = struct {
+    name: []const u8,
+    flags: FontFlags,
+};
+
+/// A font descriptor's /Flags, PDF 1.7 section 5.7.1.
+pub const FontFlags = packed struct(u32) {
+    fixed_pitch: bool = false,
+    serif: bool = false,
+    symbolic: bool = false,
+    script: bool = false,
+    _reserved5: bool = false,
+    nonsymbolic: bool = false,
+    italic: bool = false,
+    _reserved8: u9 = 0,
+    all_cap: bool = false,
+    small_cap: bool = false,
+    force_bold: bool = false,
+    /// pdfium sets some of these for its own bookkeeping.
+    _reserved20: u13 = 0,
+};
+
 pub const TextPage = opaque {
     pub fn deinit(self: *TextPage) void {
         FPDFText_ClosePage(@ptrCast(self));
@@ -951,6 +975,15 @@ pub const TextPage = opaque {
         const weight = FPDFText_GetFontWeight(@ptrCast(self), @intCast(index));
         if (weight < 0) return null;
         return @intCast(weight);
+    }
+
+    /// The char's font name and descriptor flags. The name is written into
+    /// `buf`; a name longer than `buf` fails rather than truncating.
+    pub fn getFontInfo(self: *TextPage, index: usize, buf: []u8) ?FontInfo {
+        var flags: c_int = 0;
+        const len = FPDFText_GetFontInfo(@ptrCast(self), @intCast(index), buf.ptr, @intCast(buf.len), &flags);
+        if (len == 0 or len > buf.len) return null;
+        return .{ .name = buf[0 .. len - 1], .flags = @bitCast(@as(u32, @bitCast(flags))) };
     }
 
     /// Whether pdfium inserted the char itself, such as the line break between
@@ -1177,6 +1210,11 @@ test "text metrics" {
 
     try testing.expectEqual(@as(f64, 12), text_page.getFontSize(0));
     try testing.expectEqual(@as(?u16, 700), text_page.getFontWeight(0));
+    var name_buf: [64]u8 = undefined;
+    const info = text_page.getFontInfo(0, &name_buf).?;
+    try testing.expectEqualStrings("Helvetica-Bold", info.name);
+    try testing.expect(info.flags.nonsymbolic and !info.flags.italic and !info.flags.symbolic);
+    try testing.expectEqual(@as(?FontInfo, null), text_page.getFontInfo(0, name_buf[0..4]));
 
     // "Hello", the generated line break, then "World".
     try testing.expectEqual(false, try text_page.isGenerated(0));
