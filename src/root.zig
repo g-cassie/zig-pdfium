@@ -120,6 +120,7 @@ pub var FPDFPageObj_GetType: *@TypeOf(c.FPDFPageObj_GetType) = undefined;
 pub var FPDFPageObj_GetBounds: *@TypeOf(c.FPDFPageObj_GetBounds) = undefined;
 pub var FPDFPageObj_GetStrokeWidth: *@TypeOf(c.FPDFPageObj_GetStrokeWidth) = undefined;
 pub var FPDFPageObj_GetMatrix: *@TypeOf(c.FPDFPageObj_GetMatrix) = undefined;
+pub var FPDFTextObj_GetTextRenderMode: *@TypeOf(c.FPDFTextObj_GetTextRenderMode) = undefined;
 // Optional, alongside the form APIs below: Experimental in pdfium.
 pub var FPDFAnnot_GetObjectCount: *@TypeOf(c.FPDFAnnot_GetObjectCount) = undefined;
 pub var FPDFAnnot_GetObject: *@TypeOf(c.FPDFAnnot_GetObject) = undefined;
@@ -300,6 +301,7 @@ pub fn bindPdfium(path: []const u8) !void {
     FPDFPageObj_GetBounds = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetBounds), "FPDFPageObj_GetBounds").?;
     FPDFPageObj_GetStrokeWidth = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetStrokeWidth), "FPDFPageObj_GetStrokeWidth").?;
     FPDFPageObj_GetMatrix = c_pdfium.?.lookup(@TypeOf(FPDFPageObj_GetMatrix), "FPDFPageObj_GetMatrix").?;
+    FPDFTextObj_GetTextRenderMode = c_pdfium.?.lookup(@TypeOf(FPDFTextObj_GetTextRenderMode), "FPDFTextObj_GetTextRenderMode").?;
     FPDFPath_CountSegments = c_pdfium.?.lookup(@TypeOf(FPDFPath_CountSegments), "FPDFPath_CountSegments").?;
     FPDFPath_GetPathSegment = c_pdfium.?.lookup(@TypeOf(FPDFPath_GetPathSegment), "FPDFPath_GetPathSegment").?;
     FPDFPathSegment_GetType = c_pdfium.?.lookup(@TypeOf(FPDFPathSegment_GetType), "FPDFPathSegment_GetType").?;
@@ -1252,6 +1254,24 @@ test "page object matrix and clip path" {
     try testing.expectEqual([2]f32{ 130, 150 }, max);
 }
 
+const TEST_RENDER_MODES_PDF = "test/render-modes.pdf";
+
+test "text render mode" {
+    const doc = try Document.load(TEST_RENDER_MODES_PDF);
+    defer doc.deinit();
+    const page = try doc.loadPage(0);
+    defer page.deinit();
+
+    try testing.expectEqual(@as(c_int, 3), FPDFPage_CountObjects(@ptrCast(page)));
+    const shown: *PageObject = @ptrCast(FPDFPage_GetObject(@ptrCast(page), 0).?);
+    const hidden: *PageObject = @ptrCast(FPDFPage_GetObject(@ptrCast(page), 1).?);
+    const path: *PageObject = @ptrCast(FPDFPage_GetObject(@ptrCast(page), 2).?);
+
+    try testing.expectEqual(@as(?TextRenderMode, .fill), shown.getTextRenderMode());
+    try testing.expectEqual(@as(?TextRenderMode, .invisible), hidden.getTextRenderMode());
+    try testing.expectEqual(@as(?TextRenderMode, null), path.getTextRenderMode());
+}
+
 test "Matrix apply and concat" {
     const translate: Matrix = .{ .a = 1, .b = 0, .c = 0, .d = 1, .e = 10, .f = 20 };
     const scale: Matrix = .{ .a = 2, .b = 0, .c = 0, .d = 3, .e = 0, .f = 0 };
@@ -1644,6 +1664,14 @@ pub const PageObject = opaque {
         return matrix;
     }
 
+    /// How a text object's glyphs are painted, the `Tr` operator (PDF 1.7
+    /// section 5.2.5); null for an object that is not text.
+    pub fn getTextRenderMode(self: *PageObject) ?TextRenderMode {
+        const mode = FPDFTextObj_GetTextRenderMode(@ptrCast(self));
+        if (mode == c.FPDF_TEXTRENDERMODE_UNKNOWN) return null;
+        return @enumFromInt(mode);
+    }
+
     /// The clip's points are in the space of the form object holding this one,
     /// not page space. An unclipped object still returns one, with no paths;
     /// so does one whose clip is a lone rectangle holding all of it, which
@@ -1651,6 +1679,18 @@ pub const PageObject = opaque {
     pub fn getClipPath(self: *PageObject) ?*ClipPath {
         return @ptrCast(FPDFPageObj_GetClipPath(@ptrCast(self)));
     }
+};
+
+pub const TextRenderMode = enum(c_int) {
+    fill = c.FPDF_TEXTRENDERMODE_FILL,
+    stroke = c.FPDF_TEXTRENDERMODE_STROKE,
+    fill_stroke = c.FPDF_TEXTRENDERMODE_FILL_STROKE,
+    /// Neither filled nor stroked: the text layer an OCR tool lays over a scan.
+    invisible = c.FPDF_TEXTRENDERMODE_INVISIBLE,
+    fill_clip = c.FPDF_TEXTRENDERMODE_FILL_CLIP,
+    stroke_clip = c.FPDF_TEXTRENDERMODE_STROKE_CLIP,
+    fill_stroke_clip = c.FPDF_TEXTRENDERMODE_FILL_STROKE_CLIP,
+    clip = c.FPDF_TEXTRENDERMODE_CLIP,
 };
 
 /// pdfium's FS_MATRIX: x' = a*x + c*y + e, y' = b*x + d*y + f.
